@@ -42,6 +42,15 @@ CAMERA_FPS = int(os.getenv("CAMERA_FPS", "30"))
 # Ultrasonic gate, centimetres from the sensor.
 GATE_CM = int(os.getenv("GATE_CM", "30"))
 
+# How long the physical feedback LED stays latched after a result.  The rig
+# always sends LED 0 when this expires; the LED is never the only copy of the
+# state, the UI edge glow uses the same duration.
+LED_GLOW_MS = int(os.getenv("LED_GLOW_MS", "900"))
+
+# The rig polls DIST only while the drill is idle, for gate calibration.
+# 250 ms is about 4 Hz; the firmware needs 25 ms between pings.
+DIST_POLL_MS = int(os.getenv("DIST_POLL_MS", "250"))
+
 # ---------------------------------------------------------------------
 # Timing. All backend times are time.perf_counter() seconds.
 # ---------------------------------------------------------------------

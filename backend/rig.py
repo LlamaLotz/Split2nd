@@ -45,6 +45,19 @@ ARDUINO_IDS = {
 }
 
 
+def led_color(value: str | None) -> str:
+    """Wire colour for the physical LED: G/Y/R or 0 (off).
+
+    The app grades a false start ``F`` and a boxing miss ``M``; the firmware
+    only knows G/Y/R, so both map to red.  Keeping this in one helper means
+    the result payload and the serial command can never disagree.
+    """
+    value = (value or "0")[:1].upper()
+    if value in ("F", "M"):
+        return "R"
+    return value if value in ("G", "Y", "R") else "0"
+
+
 def find_serial_port() -> str | None:
     if not SERIAL_OK:
         return None
@@ -83,6 +96,14 @@ class BaseRig:
         self.demo_on = False
         self.sent: deque[str] = deque(maxlen=60)
         self.raw_log: deque[dict[str, Any]] = deque(maxlen=80)
+        # LED ownership.  The rig, not the page, guarantees a release: every
+        # feedback colour gets an LED 0 timer, and an explicit off cancels it.
+        self.led_state = "0"
+        self.led_log: deque[str] = deque(maxlen=20)
+        self._glow_timer: threading.Timer | None = None
+        self._glow_gen = 0
+        self._glow_until = 0.0
+        self._glow_lock = threading.Lock()
         self._lock = threading.RLock()
 
     # -- API -----------------------------------------------------------
@@ -108,6 +129,9 @@ class BaseRig:
             "firmware": self.firmware,
             "i2c": self.i2c,
             "demo_on": self.demo_on,
+            "led": self.led_state,
+            "led_log": list(self.led_log),
+            "glow_active": self._glow_until > time.monotonic(),
             "sent": list(self.sent)[-10:],
         }
 
@@ -123,6 +147,9 @@ class BaseRig:
 
     def demo(self, on: bool) -> None:
         self.demo_on = bool(on)
+        if not self.demo_on:
+            # The firmware turns all LEDs off when demo mode ends.
+            self.led_state = "0"
         self.send(f"DEMO {1 if on else 0}")
 
     def stim(self) -> None:
@@ -134,13 +161,59 @@ class BaseRig:
     def gate(self, cm: int) -> None:
         self.send(f"GATE {int(cm)}")
 
+    def _send_led(self, value: str) -> None:
+        wire = led_color(value)
+        self.led_state = wire
+        self.led_log.append(f"LED {wire}")
+        self.send(f"LED {wire}")
+
     def led(self, value: str | None) -> None:
-        value = (value or "0")[:1].upper()
-        if value == "M":          # boxing miss -> red
-            value = "R"
-        if value not in ("G", "Y", "R", "0"):
-            value = "0"
-        self.send(f"LED {value}")
+        """Set the LED explicitly.  An explicit off/mode change wins over a
+        pending feedback glow, which is why the timer is cancelled here."""
+        self.cancel_glow()
+        self._send_led(value or "0")
+
+    def glow(self, color: str | None, ms: int | None = None) -> None:
+        """Light the feedback LED and release it after ``ms``.
+
+        Every result takes this path.  A later glow supersedes the earlier
+        timer, so a fast mode change can never be turned off by a stale one.
+        """
+        wire = led_color(color)
+        ms = max(0, int(config.LED_GLOW_MS if ms is None else ms))
+        self.cancel_glow()
+        if wire == "0":
+            self._send_led("0")
+            return
+        with self._glow_lock:
+            self._glow_gen += 1
+            gen = self._glow_gen
+            self._glow_until = time.monotonic() + ms / 1000.0
+            timer = threading.Timer(ms / 1000.0, self._glow_off, args=(gen,))
+            timer.daemon = True
+            self._glow_timer = timer
+        self._send_led(wire)
+        timer.start()
+
+    def _glow_off(self, gen: int) -> None:
+        with self._glow_lock:
+            if gen != self._glow_gen:
+                return
+            self._glow_timer = None
+            self._glow_until = 0.0
+        self._send_led("0")
+
+    def cancel_glow(self) -> None:
+        with self._glow_lock:
+            self._glow_gen += 1
+            timer = self._glow_timer
+            self._glow_timer = None
+            self._glow_until = 0.0
+        if timer is not None:
+            try:
+                timer.cancel()
+            except Exception:
+                pass
 
     def show(self, rt_ms: int, grade: str, best_ms: int | None) -> None:
         # The firmware only accepts G/Y/R/F on the OLED.  A boxing miss is
@@ -211,10 +284,25 @@ class BaseRig:
         self.events.put(event)
 
         if kind == "READY":
+            self._on_ready()
+        elif kind == "PONG":
+            self.handshake = True
             self.ready = True
-            self.connected = True
-            # The firmware boots into DEMO.  The app must own the unit.
-            self.demo(False)
+
+    def _on_ready(self) -> None:
+        """Take ownership of the unit after the Uno boots.
+
+        The sketch boots into DEMO mode, which drives the LEDs by distance and
+        would fight the app.  DEMO 0 turns that off and clears the LEDs; PING
+        proves the link and VER caches the firmware string for /api/health.
+        """
+        self.ready = True
+        self.connected = True
+        self.cancel_glow()
+        self.led_state = "0"
+        self.demo(False)
+        self.ping()
+        self.ver()
 
 
 class FakeRig(BaseRig):
@@ -237,6 +325,8 @@ class FakeRig(BaseRig):
         self._emit("READY", "READY")
 
     def stop(self) -> None:
+        self.cancel_glow()
+        self._send_led("0")
         for t in self._timers:
             t.cancel()
         self._timers.clear()
@@ -244,7 +334,15 @@ class FakeRig(BaseRig):
 
     def send(self, line: str) -> None:
         self.sent.append(line)
-        if line == "STIM" and self.simulate_hits:
+        # Answer the handshake/calibration commands the same shape the real
+        # firmware does.  This keeps engine tests on the real code path.
+        if line == "PING":
+            self._emit("PONG", "PONG")
+        elif line == "VER":
+            self._emit("VER reflex-fw 1.0")
+        elif line == "DIST":
+            self._emit(f"DIST {random.randint(14, 70)}")
+        elif line == "STIM" and self.simulate_hits:
             timer = threading.Timer(random.uniform(0.18, 0.32), self._fake_hit)
             timer.daemon = True
             timer.start()
@@ -289,6 +387,7 @@ class SerialRig(BaseRig):
         super().__init__()
         self.port = port or find_serial_port()
         self.ser = None
+        self.port_busy = False
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._retry_after = 0.0
@@ -298,6 +397,18 @@ class SerialRig(BaseRig):
         self._thread.start()
 
     def stop(self) -> None:
+        # Release before closing: DISARM stops the ultrasonic, LED 0 makes
+        # sure a latched feedback colour cannot survive the process.  This is
+        # deliberately attempted even if the port looks closed, so `sent`
+        # still records the release intent.
+        self.cancel_glow()
+        try:
+            self.send("DISARM")
+            self.led(None)
+            if self.ser and self.ser.is_open:
+                self.ser.flush()
+        except Exception:
+            pass
         self._stop.set()
         try:
             if self.ser and self.ser.is_open:
@@ -332,10 +443,18 @@ class SerialRig(BaseRig):
             try:
                 self.ser = serial.Serial(self.port, 115200, timeout=0.2)
                 self.connected = True
+                self.port_busy = False
                 self.last_error = None
                 self._read_loop()
             except Exception as exc:
-                self.last_error = f"{type(exc).__name__}: {exc}"
+                self.port_busy = self._is_busy_error(exc)
+                if self.port_busy:
+                    self.last_error = (
+                        f"{self.port} is busy - close the Arduino IDE "
+                        f"Serial Monitor and the rig reconnects automatically"
+                    )
+                else:
+                    self.last_error = f"{type(exc).__name__}: {exc}"
                 self.connected = False
                 self.ready = False
                 self.handshake = False
@@ -346,6 +465,14 @@ class SerialRig(BaseRig):
                     pass
                 self.ser = None
                 self._sleep(1.5)
+
+    @staticmethod
+    def _is_busy_error(exc: Exception) -> bool:
+        text = str(exc).lower()
+        return any(needle in text for needle in (
+            "permission", "access is denied", "busy", "cannot open",
+            "could not open", "denied",
+        ))
 
     def _read_loop(self) -> None:
         assert self.ser is not None
@@ -363,13 +490,6 @@ class SerialRig(BaseRig):
             if not text:
                 continue
             self._emit(text)
-            if text.startswith("READY"):
-                self.ready = True
-                self.connected = True
-                self.send("PING")
-            elif text.startswith("PONG"):
-                self.handshake = True
-                self.ready = True
 
     def _sleep(self, seconds: float) -> None:
         self._stop.wait(seconds)
@@ -377,6 +497,7 @@ class SerialRig(BaseRig):
     def status(self) -> dict[str, Any]:
         out = super().status()
         out["port"] = self.port
+        out["port_busy"] = self.port_busy
         return out
 
 

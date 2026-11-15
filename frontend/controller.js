@@ -102,6 +102,9 @@ function applyState(state) {
 
 function handleResult(msg) {
   hideOverlay();
+  if (!msg.bot && window.Split2ndEdge) {
+    window.Split2ndEdge.flash(msg.edge?.color || msg.grade || "R", msg.edge?.ms || 900);
+  }
   if (!msg.bot) {
     S.result = msg;
     $("#lastRt").textContent = msg.rt_ms == null ? "--" : fmtMs(msg.rt_ms);

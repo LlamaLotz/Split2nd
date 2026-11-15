@@ -352,6 +352,10 @@ function onResult(msg) {
   }
   if (msg.player_id !== PLAYER_ID) return;
 
+  if (window.Split2ndEdge) {
+    window.Split2ndEdge.flash(msg.edge?.color || msg.grade || "R", msg.edge?.ms || 900);
+  }
+
   S.phase = "result";
   status("");
   navigator.vibrate?.(70);

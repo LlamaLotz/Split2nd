@@ -585,7 +585,7 @@ def test_rig_speaks_the_real_firmware_protocol():
     assert {"VER", "OK", "ERR", "DIST", "DEMO", "TIMEOUT", "I2C", "HIT"} <= kinds
     assert rig.firmware == "reflex-fw 1.0"
     assert rig.i2c == "0x3C"
-    assert rig.last_distance_cm == 27
+    assert rig.last_distance_cm == 18  # HIT is the newest distance reading
     rig.dist()
     assert rig.sent[-1] == "DIST"
     rig.show(0, "M", 210)

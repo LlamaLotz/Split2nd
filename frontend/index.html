@@ -7,6 +7,7 @@
 <title>Split2nd · Reflex Lab</title>
 <link rel="stylesheet" href="/static/app.css">
 <link rel="stylesheet" href="/static/edge.css">
+<link rel="stylesheet" href="/static/camera.css">
 </head>
 <body>
 <header class="topbar">
@@ -66,12 +67,12 @@
     </section>
 
     <section class="card col-4 preview">
-      <div class="card-head">Camera <span class="chip" id="camChip">no signal</span></div>
+      <div class="card-head">Camera <span class="chip" id="camChip">no signal</span><button class="btn btn-sm" id="camExpand" type="button">Expand</button></div>
       <div class="video-wrap">
         <img id="video" src="/video" alt="Live camera preview">
         <div class="nosignal" id="nosignal">WAITING FOR FRAMES</div>
       </div>
-      <div class="cam-meta" id="camMeta">--</div>
+      <div class="cam-meta" id="camMeta"><span id="camStats">--</span><span id="camDistance">GATE 30 · DIST --</span></div>
     </section>
 
     <section class="card col-3 leaderboard">

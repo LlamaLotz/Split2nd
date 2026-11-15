@@ -184,6 +184,11 @@ THRESHOLDS: dict[str, float] = {
     # execution time window
     "exec_speed_ratio": 0.20,
     "exec_floor": 0.30,
+    # Real HC-SR04 Z: a straight punch must close distance toward the laptop.
+    # Used as the primary straight condition whenever the sensor is fresh; the
+    # monocular pose depth is only the fallback when no sensor reading exists.
+    "sensor_straight_drop_cm": 6.0,
+    "sensor_min_drop_cm": 2.0,
 }
 
 # MediaPipe Pose landmark indexes.
@@ -310,7 +315,14 @@ def _parse_frames(frames: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
         world = _as_points(frame.get("world") or frame.get("world_landmarks"))
         if image is None and world is None:
             continue
-        parsed.append({"t": t, "image": image, "world": world})
+        try:
+            sensor = frame.get("sensor_z")
+            sensor = float(sensor) if sensor is not None else None
+            if sensor is not None and sensor < 0:
+                sensor = None
+        except (TypeError, ValueError):
+            sensor = None
+        parsed.append({"t": t, "image": image, "world": world, "sensor_z": sensor})
     parsed.sort(key=lambda f: f["t"])
     return parsed
 
@@ -321,6 +333,7 @@ def _extract(frames: Sequence[dict[str, Any]]) -> tuple[dict[str, Any], list[dic
     empty: dict[str, Any] = {
         "n": 0, "source": None, "duration_s": 0.0, "scale": 1.0,
         "left": {}, "right": {}, "head": {}, "shoulder_rotation": None,
+        "sensor_drop_cm": None,
     }
     if len(parsed) < 2:
         return empty, []
@@ -346,9 +359,17 @@ def _extract(frames: Sequence[dict[str, Any]]) -> tuple[dict[str, Any], list[dic
         sw = _dist(pts[L_SHOULDER], pts[R_SHOULDER])
         if sw > 1e-6:
             scales.append(sw)
-        rows.append({"t": f["t"], "p": pts})
+        rows.append({"t": f["t"], "p": pts, "sensor_z": f.get("sensor_z")})
     if len(rows) < 2:
         return empty, []
+
+    sensor_vals = [r["sensor_z"] for r in rows if r.get("sensor_z") is not None]
+    sensor_drop = None
+    if (len(sensor_vals) >= 2
+            and (max(sensor_vals) - min(sensor_vals)) >= THRESHOLDS["sensor_min_drop_cm"]):
+        # A non-dynamic sensor (one stale reading repeated) is not evidence of
+        # a straight punch; fall back to monocular world-z in that case.
+        sensor_drop = round(max(0.0, float(sensor_vals[0]) - float(min(sensor_vals))), 1)
 
     scale = _median(scales) or 1.0
     if scale < 1e-6:
@@ -528,6 +549,7 @@ def _extract(frames: Sequence[dict[str, Any]]) -> tuple[dict[str, Any], list[dic
             "wrist_path": left["path"] + right["path"],
         },
         "wrist_path_max": wrist_path_max,
+        "sensor_drop_cm": sensor_drop,
     }
     return features, series
 
@@ -536,6 +558,45 @@ def extract_features(frames: Sequence[dict[str, Any]]) -> dict[str, Any]:
     """Public feature extractor (no internal speed series)."""
     features, _ = _extract(frames)
     return features
+
+
+def window_visibility(frames: Sequence[dict[str, Any]],
+                      stance: str = "orthodox") -> dict[str, Any]:
+    """Frame-level validation: was the head and were both hands visible?
+
+    Uses the newest image landmarks, because framing is a camera question and
+    world landmarks are not screen-normalised. Visibility below the model's
+    threshold counts as out of frame.
+    """
+    parsed = _parse_frames(frames)
+    empty = {
+        "head_visible": False,
+        "hands_visible": {"lead": False, "rear": False},
+        "in_frame": False,
+    }
+    if not parsed:
+        return empty
+    pts = parsed[-1].get("image")
+    if pts is None or len(pts) < 33:
+        return empty
+
+    min_vis = THRESHOLDS["min_visibility"]
+
+    def tracked(i: int) -> bool:
+        p = pts[i]
+        return (p[3] >= min_vis and 0.02 <= p[0] <= 0.98
+                and 0.02 <= p[1] <= 0.98)
+
+    head = tracked(0) or (tracked(L_EAR) and tracked(R_EAR))
+    lead_side = STANCES.get(stance, STANCES["orthodox"])["lead"]
+    lead = L_WRIST if lead_side == "left" else R_WRIST
+    rear = R_WRIST if lead_side == "left" else L_WRIST
+    hands = {"lead": tracked(lead), "rear": tracked(rear)}
+    return {
+        "head_visible": bool(head),
+        "hands_visible": hands,
+        "in_frame": bool(head and hands["lead"] and hands["rear"]),
+    }
 
 
 # ----------------------------------------------------------------------
@@ -555,8 +616,15 @@ def _straight_candidates(features: dict[str, Any], stance: str) -> list[dict[str
         elbow = h.get("elbow_max")
         travel = float(h.get("travel") or 0.0)
         horizontal = max(abs(float(h.get("dx") or 0.0)), abs(float(h.get("dy") or 0.0)))
+        sensor = features.get("sensor_drop_cm")
+        if sensor is not None:
+            # The real ultrasonic Z is authoritative when available; do not
+            # let the monocular world-z prediction override the sensor.
+            straight_primary = float(sensor) >= THRESHOLDS["sensor_straight_drop_cm"]
+        else:
+            straight_primary = depth >= THRESHOLDS["straight_depth_drop"]
         conds = [
-            depth >= THRESHOLDS["straight_depth_drop"],
+            straight_primary,
             elbow is not None and elbow >= THRESHOLDS["straight_elbow_extended"],
             travel >= THRESHOLDS["straight_travel"],
             depth >= float(other.get("depth_drop") or 0.0) + THRESHOLDS["straight_depth_lead"],
@@ -717,6 +785,11 @@ def classify_window(frames: Sequence[dict[str, Any]], cue: str | None = None,
     action the geometry did not support.
     """
     features, series = _extract(frames)
+    # The ultrasonic gate is authoritative for straights. It must not boost a
+    # straight candidate on a hook/uppercut/slip cue just because a hand passed
+    # the gate; those actions are classified from pose geometry.
+    if cue not in ("jab", "cross"):
+        features["sensor_drop_cm"] = None
     if features.get("n", 0) < THRESHOLDS["min_frames"]:
         return {"action": None, "hand": None, "confidence": 0.0,
                 "execution_ms": None, "features": features,

@@ -84,6 +84,10 @@ function handle(msg) {
     case "rig":
       // Low-volume hardware events; useful while wiring the Uno.
       if (msg.event === "HIT") $("#hint").textContent = `Gate ${msg.args?.[0]} ms · ${msg.args?.[1]} cm`;
+      if (msg.event === "DIST" && msg.args?.length) {
+        $("#camDistance").textContent =
+          `GATE ${S.state?.gate_cm ?? 30} · DIST ${msg.args[0]} cm`;
+      }
       break;
 
     default:
@@ -94,6 +98,14 @@ function handle(msg) {
 function applyState(state) {
   S.state = state;
   S.phase = state.phase || "idle";
+  if (state.gate_cm != null && document.activeElement !== $("#gate")) {
+    $("#gate").value = state.gate_cm;
+    $("#gateVal").textContent = `${state.gate_cm} cm`;
+  }
+  const cm = state.last_distance_cm;
+  $("#camDistance").textContent = cm == null
+    ? `GATE ${state.gate_cm ?? 30} · DIST --`
+    : `GATE ${state.gate_cm ?? 30} · DIST ${cm} cm`;
   if (state.room) S.room = state.room;
   renderPhase();
   if (state.result && S.phase === "result") renderResultCard(state.result);
@@ -412,9 +424,28 @@ $("#seedBtn").onclick = async () => {
   } catch (err) { toast(err.message); }
 };
 
+function setCamExpanded(on) {
+  document.body.classList.toggle("cam-expanded", on);
+  const btn = $("#camExpand");
+  if (btn) btn.textContent = on ? "Close" : "Expand";
+}
+
+$("#camExpand").onclick = () => {
+  setCamExpanded(!document.body.classList.contains("cam-expanded"));
+};
+
 document.addEventListener("keydown", (e) => {
-  if (e.code !== "Space") return;
   const tag = document.activeElement?.tagName;
+  if (e.key === "Escape") {
+    setCamExpanded(false);
+    return;
+  }
+  if ((e.key === "f" || e.key === "F") && !["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(tag)) {
+    e.preventDefault();
+    setCamExpanded(!document.body.classList.contains("cam-expanded"));
+    return;
+  }
+  if (e.code !== "Space") return;
   if (["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(tag)) return;
   e.preventDefault();
   $("#startBtn").click();
@@ -448,13 +479,18 @@ async function poll() {
     $("#camChip").textContent = vis.has_preview ? "live" : "no signal";
     $("#camChip").className = "chip " + (vis.has_preview ? "live" : "warn");
     $("#nosignal").style.display = vis.has_preview ? "none" : "grid";
-    $("#camMeta").textContent = [
+    $("#camStats").textContent = [
       `${vis.fps || 0} fps`,
       `${vis.proc_ms || 0} ms/frame`,
       vis.pose_ok ? "pose" : "motion",
       `${vis.frames || 0} frames`,
       vis.remote_active ? "phone" : (vis.local_ok ? "laptop" : "fake"),
     ].join(" · ");
+    const distance = h.drill?.last_distance_cm ?? rig.last_distance_cm;
+    if (distance != null) {
+      $("#camDistance").textContent =
+        `GATE ${h.drill?.gate_cm ?? 30} · DIST ${distance} cm`;
+    }
   } catch {
     $("#dotRig").className = "dot bad";
     $("#dotVision").className = "dot bad";

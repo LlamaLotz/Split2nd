@@ -1,0 +1,57 @@
+/* Expandable camera view for the laptop console.
+   Keeps the existing MJPEG element; no second stream. */
+body.cam-expanded { overflow: hidden; }
+
+body.cam-expanded .preview {
+  position: fixed;
+  inset: 0;
+  z-index: 950;
+  padding: 0;
+  border-radius: 0;
+  background: #000;
+}
+
+body.cam-expanded .preview .card-head {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  margin: 0;
+  padding: 14px 18px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ink) 92%, transparent), transparent);
+}
+
+body.cam-expanded .preview .video-wrap {
+  position: absolute;
+  inset: 0;
+  aspect-ratio: auto;
+  border: 0;
+  border-radius: 0;
+  background: #000;
+}
+
+body.cam-expanded .preview .video-wrap img {
+  object-fit: contain;
+}
+
+body.cam-expanded .preview .cam-meta {
+  position: absolute;
+  left: 18px;
+  bottom: 16px;
+  z-index: 3;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--hud-border, var(--line));
+  border-radius: var(--radius-sm, 8px);
+  background: var(--hud-bg, rgba(8, 10, 9, 0.84));
+  backdrop-filter: var(--hud-blur, blur(18px));
+}
+
+body.cam-expanded .preview .cam-meta #camDistance {
+  color: var(--signal, #3dffa2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.cam-expanded .preview { transition: none; }
+}

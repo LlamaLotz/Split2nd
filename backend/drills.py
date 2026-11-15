@@ -202,6 +202,7 @@ class DrillEngine:
         self.ghost_trace: list[dict[str, Any]] = []
         self.session_tip: dict[str, Any] | None = None
         self.rooms: dict[str, Room] = {}
+        self._last_dist = 0.0
         self._busy = asyncio.Lock()
         self._loop_task: asyncio.Task | None = None
 
@@ -794,8 +795,20 @@ class DrillEngine:
             t = sample.t
             if self.source == "remote" and self.drill_clock == "backend":
                 t += self.offset
-            frames.append({"t": t, "image": landmarks, "world": world})
+            frames.append({
+                "t": t,
+                "image": landmarks,
+                "world": world,
+                "sensor_z": self.rig.distance_at(getattr(sample, "t_recv", sample.t))
+                if hasattr(self.rig, "distance_at") else None,
+            })
         frames.sort(key=lambda f: f["t"])
+        if (self.hit_cm and self.hit_cm > 0 and frames
+                and self.boxing_cue and self.boxing_cue["id"] in ("jab", "cross")):
+            # The ultrasonic gate is the authoritative Z at a straight punch.
+            # DIST is only polled while idle, so stamp the hit distance on the
+            # newest pose sample instead of inventing a duplicate frame.
+            frames[-1]["sensor_z"] = float(self.hit_cm)
         return frames
 
     async def _finish_boxing_cue(self) -> None:
@@ -833,6 +846,17 @@ class DrillEngine:
         edge_color = feedback_color("boxing", grade, correct=correct)
         edge = edge_payload(edge_color)
         led = led_color(edge_color)
+
+        validation = boxing.window_visibility(frames, self.stance)
+        validation.update({
+            "action_match": bool(correct),
+            "confidence": round(float(detection.get("confidence") or 0.0), 3),
+            "gate_hit": self.hit_ms is not None,
+        })
+        validation["in_frame"] = bool(
+            validation.get("head_visible")
+            and all((validation.get("hands_visible") or {}).values())
+        )
 
         ghost_ms = None
         if done - 1 < len(self.ghost_trace):
@@ -905,6 +929,7 @@ class DrillEngine:
             "hit_delta_ms": (int(self.hit_ms - reaction_ms)
                              if self.hit_ms is not None and reaction_ms is not None
                              else None),
+            "z_drop_cm": (detection.get("features") or {}).get("sensor_drop_cm"),
             "combo": self.combo,
             "xp": xp,
             "tip": None,
@@ -921,6 +946,7 @@ class DrillEngine:
             "rep": done,
             "edge": edge,
             "led": led,
+            "validation": validation,
         }
 
         # One evidence-backed tip per session: attach it to the final cue and

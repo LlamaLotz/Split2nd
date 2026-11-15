@@ -153,6 +153,8 @@ MediaPipe Pose (lite) is optional. If it cannot load, the engine falls back to f
 
 `speed bonus = clamp((400 − rt) / 10, 0, 40)`, `PB = +20`, `streak = +3/day` capped at 7 days. The result card shows the full breakdown.
 
+Camera-mode absolute values include roughly 30–60 ms of display/capture latency, so the same athlete grades one band slower than a lab timer. If you want grades that match the lab bands, start with `GREEN_MS=300 YELLOW_MS=400` and tune on the rig; the defaults stay at the spec's 250/350.
+
 Streak = consecutive calendar days with at least one recorded rep. Levels are thresholds in `backend/xp.py`. The leaderboard sorts by **best** RT, ties by median, and marks seeded profiles `demo`.
 
 ---

@@ -338,11 +338,11 @@ class Store:
                     self.data["sessions"].pop(s["id"], None)
 
             specs = [
-                ("Demo Athlete", 12, 196, 214, 60),
-                ("Coach Rivera", 4, 203, 221, 28),
-                ("R. Sharma", 2, 214, 238, 18),
-                ("M. Chen", 7, 219, 236, 34),
-                ("A. Silva", 1, 228, 251, 12),
+                ("Demo Athlete", 12, 238, 266, 60),
+                ("Coach Rivera", 4, 246, 276, 28),
+                ("R. Sharma", 2, 252, 284, 18),
+                ("M. Chen", 7, 258, 292, 34),
+                ("A. Silva", 1, 265, 302, 12),
             ]
             rng = __import__("random").Random(7)
             now = datetime.now().astimezone()
@@ -367,7 +367,7 @@ class Store:
                     if d > streak and d % 3 != 0:
                         continue
                     for i in range(3):
-                        rt = max(185, int(rng.gauss(median_ms + d * 0.9 - i * 4, 12)))
+                        rt = max(best_ms, int(rng.gauss(median_ms + d * 0.9 - i * 4, 12)))
                         if d == 1 and i == 0:
                             rt = best_ms
                         ts = datetime.combine(day, datetime.min.time()).astimezone() + timedelta(

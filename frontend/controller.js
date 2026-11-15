@@ -364,7 +364,8 @@ $("#addPlayer").onclick = async () => {
 
 $("#copyLink").onclick = async () => {
   if (!S.playerId) return toast("Pick an athlete first");
-  const url = `${location.origin}/play?player=${encodeURIComponent(S.playerId)}` +
+  const base = (S.config && S.config.public_url) || location.origin;
+  const url = `${base}/play?player=${encodeURIComponent(S.playerId)}` +
     (S.room?.code ? `&room=${encodeURIComponent(S.room.code)}` : "");
   try {
     await navigator.clipboard.writeText(url);

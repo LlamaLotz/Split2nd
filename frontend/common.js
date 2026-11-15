@@ -124,6 +124,124 @@ export function renderRefs(refs = []) {
   ).join("")}</div>`;
 }
 
+/* ------------------------------------------------------------------ */
+/* boxing helpers (shared by the controller and the phone)            */
+/* ------------------------------------------------------------------ */
+export const MODE_KEY = "s2.mode";
+
+export function loadMode(fallback = "racing") {
+  try {
+    const stored = localStorage.getItem(MODE_KEY);
+    if (stored === "boxing" || stored === "racing") return stored;
+    return fallback === "boxing" ? "boxing" : "racing";
+  } catch {
+    return fallback === "boxing" ? "boxing" : "racing";
+  }
+}
+
+export function saveMode(mode) {
+  try { localStorage.setItem(MODE_KEY, mode === "boxing" ? "boxing" : "racing"); } catch {}
+}
+
+const BOX_LABELS = {
+  jab: "JAB",
+  cross: "CROSS",
+  hook: "HOOK",
+  hook_l: "LEFT HOOK",
+  hook_r: "RIGHT HOOK",
+  uppercut: "UPPERCUT",
+  uppercut_l: "LEFT UPPERCUT",
+  uppercut_r: "RIGHT UPPERCUT",
+  slip: "SLIP",
+  slip_l: "SLIP LEFT",
+  slip_r: "SLIP RIGHT",
+  slip_left: "SLIP L",
+  slip_right: "SLIP R",
+  duck: "DUCK",
+  block: "BLOCK",
+  none: "MISS",
+  miss: "MISS",
+  false_start: "FALSE START",
+  early: "FALSE START",
+};
+
+export function boxingLabel(action) {
+  const key = String(action ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (!key) return "—";
+  if (BOX_LABELS[key]) return BOX_LABELS[key];
+  return key.replace(/_/g, " ").toUpperCase();
+}
+
+/** Normalise a cue hand (lead/rear/left/right) into a screen side. */
+export function boxingHandSide(hand, stance = "orthodox") {
+  const h = String(hand ?? "").trim().toLowerCase();
+  const lead = stance === "southpaw" ? "right" : "left";
+  const rear = lead === "left" ? "right" : "left";
+  if (h === "lead") return lead;
+  if (h === "rear") return rear;
+  if (h === "left" || h === "l") return "left";
+  if (h === "right" || h === "r") return "right";
+  if (h === "down" || h === "duck") return "down";
+  return "center";
+}
+
+/** Short label for the cue hand, e.g. "LEAD · LEFT". */
+export function boxingHandLabel(hand, stance = "orthodox", sideOverride = null) {
+  const h = String(hand ?? "").trim().toLowerCase();
+  const side = sideOverride || boxingHandSide(hand, stance);
+  if (h === "lead" || h === "rear") return `${h.toUpperCase()} · ${side.toUpperCase()}`;
+  if (h === "left" || h === "right") return `${h.toUpperCase()} HAND`;
+  if (h === "down" || h === "duck") return "DUCK";
+  if (h === "both" || h === "center" || h === "middle") return "GUARD";
+  return "";
+}
+
+/** Sentence-case hand/zone label for the arena cue. */
+export function boxingCueHand(cue = {}, stance = "orthodox") {
+  const action = String(cue.action || cue.id || "").trim().toLowerCase();
+  const side = cue.hand_side || boxingHandSide(cue.hand, cue.stance || stance);
+  if (action.startsWith("slip")) return `Head ${side}`;
+  if (action === "block") return "Guard up";
+  const hand = String(cue.hand || "").trim().toLowerCase();
+  if (hand === "lead" || hand === "rear") return `${hand} · ${side}`;
+  if (side === "left" || side === "right") {
+    const label = String(cue.label || "").toLowerCase();
+    if (/_l$|_r$/.test(action) || label.startsWith("left") || label.startsWith("right")) return side;
+    return `${side} hand`;
+  }
+  return "Match the cue";
+}
+
+export function clampNumber(value, min, max, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+/** Accuracy may arrive as 0..1 or 0..100; render it as a percentage. */
+export function fmtPct(value, digits = 0) {
+  if (value === null || value === undefined || value === "") return "--";
+  let n = Number(value);
+  if (!Number.isFinite(n)) return "--";
+  if (n > 0 && n <= 1) n *= 100;
+  return `${n.toFixed(digits)}%`;
+}
+
+export function fmtSigned(value, unit = "ms") {
+  if (value === null || value === undefined || value === "") return "--";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  const rounded = Math.round(n);
+  return `${rounded > 0 ? "+" : ""}${rounded}${unit ? ` ${unit}` : ""}`;
+}
+
+export function median(values = []) {
+  const nums = values.map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+  if (!nums.length) return null;
+  const mid = Math.floor(nums.length / 2);
+  return nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
+}
+
 export function beep(freq = 880, ms = 50) {
   // Used only for the result, never for the stimulus.
   try {

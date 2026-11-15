@@ -1,5 +1,7 @@
 import {
-  $, $$, CLOCK_ID, api, connectWS, esc, fmtMs, gradeWord, toast,
+  $, $$, CLOCK_ID, api, boxingCueHand, boxingHandSide, boxingLabel,
+  clampNumber, connectWS, esc, fmtMs, fmtPct, fmtSigned, gradeWord,
+  loadMode, saveMode, toast,
 } from "./common.js";
 
 const params = new URLSearchParams(location.search);
@@ -23,17 +25,48 @@ const S = {
   lastFpsAt: 0,
   fpsCount: 0,
   wakeLock: null,
+  mode: loadMode(),
+  stance: localStorage.getItem("s2.stance") === "southpaw" ? "southpaw" : "orthodox",
+  box: {
+    cue: null,
+    cuePainted: false,
+    timers: [],
+    countTimer: null,
+    edgeTimer: null,
+    windowMs: 1400,
+    combo: 0,
+    xp: 0,
+    accuracy: null,
+    session: null,
+    mascotState: "idle",
+    mascotOk: null,
+    reportOpen: false,
+    report: null,
+  },
 };
 
 const video = $("#video");
 const canvas = $("#canvas");
 const ctx = canvas.getContext("2d", { alpha: false });
+const GLOVE_SVG = $("#boxMascot")?.innerHTML || "";
 let ws = null;
+
+const RACE_GATE_COPY =
+  "Your phone is the sensor and the scoreboard. Prop it up at eye level, step back so your upper body is in frame, then race the lights.";
+const BOX_GATE_COPY =
+  "Your phone is the cue board and the camera. Prop it up at eye level, step back so your upper body is in frame, then shadow-box the cue. Nobody punches the screen.";
+
+const SVG_CHECK = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12.5l5 5L20 6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const SVG_CROSS = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>`;
+const BADGE_CHEST = `<img class="box-badge" src="/static/assets/badge-chest.svg" alt="">`;
 
 /* ------------------------------------------------------------------ */
 /* boot                                                               */
 /* ------------------------------------------------------------------ */
 async function boot() {
+  applyMode(S.mode, { persist: false });
+  probeMascot();
+
   try {
     const players = await api("/api/players");
     if (!PLAYER_ID || !players.some((p) => p.id === PLAYER_ID)) {
@@ -87,16 +120,40 @@ function handle(msg) {
       if (msg.player) { S.player = msg.player; renderHud(msg.player); }
       if (msg.state?.room) { S.room = msg.state.room; renderRoomPill(); }
       if (msg.config) S.config = msg.config;
+      if (msg.state?.mode && msg.state.phase && msg.state.phase !== "idle") {
+        applyMode(msg.state.mode);
+      }
       maybeJoinRoom(msg);
       break;
     case "state":
       onState(msg);
       break;
     case "schedule":
-      runLights(msg);
+      if (msg.mode === "boxing") {
+        // Optional: a backend may echo the stance so lead/rear cues resolve
+        // correctly on a phone that did not start the set itself.
+        adoptStance(msg.stance);
+        applyMode("boxing");
+        runBoxCue(msg);
+      } else {
+        applyMode("racing");
+        runLights(msg);
+      }
       break;
     case "result":
-      onResult(msg);
+      if (msg.mode === "boxing") {
+        applyMode("boxing");
+        onBoxResult(msg);
+      } else {
+        applyMode("racing");
+        onResult(msg);
+      }
+      break;
+    case "session_end":
+      if (msg.report) {
+        applyMode("boxing");
+        onSessionEnd(msg);
+      }
       break;
     case "room":
     case "room_done":
@@ -122,6 +179,58 @@ function maybeJoinRoom(msg) {
   S.joinedRoom = true;
   ws.send({ cmd: "join", room: ROOM_PARAM, player_id: PLAYER_ID });
 }
+
+/* ------------------------------------------------------------------ */
+/* mode                                                               */
+/* ------------------------------------------------------------------ */
+function applyMode(mode, { persist = true } = {}) {
+  if (mode !== "racing" && mode !== "boxing") return;
+  const changed = mode !== S.mode;
+  S.mode = mode;
+  if (persist) saveMode(mode);
+  document.body.classList.toggle("boxing-mode", mode === "boxing");
+
+  $$(".mode-toggle [data-mode]").forEach((btn) => {
+    const on = btn.dataset.mode === mode;
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-pressed", String(on));
+  });
+
+  $("#gateCopy").textContent = mode === "boxing" ? BOX_GATE_COPY : RACE_GATE_COPY;
+
+  if (changed) {
+    if (mode === "boxing") {
+      clearTimers();
+      setLightsOff();
+      clearResult();
+      hideActions();
+      status("READY");
+      boxIdle("READY", "WAITING FOR CONTROLLER");
+    } else {
+      clearBoxCue();
+      hideBoxReport();
+      hideBoxVerdict();
+      hideReward();
+      setEdge("");
+      status("READY");
+    }
+  }
+
+  if (S.cameraOn) {
+    $("#boxApp").classList.toggle("hidden", mode !== "boxing");
+    if (mode === "boxing" && changed) boxIdle("READY", "WAITING FOR CONTROLLER");
+  }
+}
+
+function adoptStance(value) {
+  if (value !== "orthodox" && value !== "southpaw") return;
+  S.stance = value;
+  localStorage.setItem("s2.stance", value);
+}
+
+$$(".mode-toggle [data-mode]").forEach((btn) => {
+  btn.addEventListener("click", () => applyMode(btn.dataset.mode));
+});
 
 /* ------------------------------------------------------------------ */
 /* camera                                                             */
@@ -152,11 +261,14 @@ $("#startCam").onclick = async () => {
     S.running = true;
     $("#gate").classList.add("hidden");
     $("#app").classList.remove("hidden");
+    $("#boxApp").classList.toggle("hidden", S.mode !== "boxing");
+    if (S.mode === "boxing") boxIdle("READY", "WAITING FOR CONTROLLER");
     $("#fullBtn").style.display = document.documentElement.requestFullscreen ? "" : "none";
     await lockScreen();
     requestFullscreen();
     requestFrame();
     ws?.send({ type: "ready", camera: true });
+    probeMascot();
     toast("Camera live");
   } catch (err) {
     showBanner(err.message || String(err), true);
@@ -201,7 +313,9 @@ function requestFrame() {
 
 function onFrame(now) {
   if (!S.running) return;
-  const interval = (!S.active || S.phase === "idle") ? 260 : 33;
+  // Boxing always streams at ~30 fps: the laptop owns pose and timing.
+  // Racing keeps the original idle throttle.
+  const interval = S.mode === "boxing" ? 33 : (!S.active || S.phase === "idle") ? 260 : 33;
   if (now - S.lastSent >= interval) {
     sendFrame(now);
     S.lastSent = now;
@@ -248,15 +362,26 @@ function updateFps(now) {
 }
 
 /* ------------------------------------------------------------------ */
-/* state + lights                                                     */
+/* state + racing lights                                              */
 /* ------------------------------------------------------------------ */
 function onState(msg) {
   const prev = S.phase;
   S.phase = msg.phase || "idle";
   S.state = msg;
+  adoptStance(msg.stance);
   if (msg.room) { S.room = msg.room; renderRoomPill(); }
   if (msg.player) { S.player = msg.player; renderHud(msg.player); }
   if (typeof msg.player_id === "string") S.activePlayerId = msg.player_id;
+
+  if (msg.mode === "boxing" || msg.mode === "racing") {
+    if (msg.mode !== S.mode) applyMode(msg.mode);
+    else document.body.classList.toggle("boxing-mode", msg.mode === "boxing");
+  }
+
+  if ((msg.mode || S.mode) === "boxing") {
+    onBoxState(msg, prev);
+    return;
+  }
 
   if (msg.room?.status === "done") {
     S.active = false;
@@ -291,6 +416,30 @@ function onState(msg) {
       status("READY");
       hideActions();
     }
+  }
+}
+
+function onBoxState(msg, prev) {
+  if (msg.player) renderHud(msg.player);
+  if (msg.progress) {
+    if (msg.progress.accuracy != null) {
+      S.box.accuracy = msg.progress.accuracy;
+      setAccuracy(msg.progress.accuracy);
+    }
+    S.box.session = msg.progress;
+  }
+  if (S.phase === "arm") {
+    if (prev !== "arm") {
+      hideBoxReport();
+      resetBoxSessionView();
+    }
+    boxIdle("GET SET", "HANDS UP");
+  } else if (S.phase === "wait") {
+    if (!S.box.cuePainted) boxIdle("READY", "WATCH THE LINE");
+  } else if (S.phase === "response") {
+    if (!S.box.cuePainted) boxIdle("CUE", "WAIT FOR THE CUE");
+  } else if (S.phase === "idle") {
+    if (!S.box.reportOpen) boxIdle("READY", "WAITING FOR CONTROLLER");
   }
 }
 
@@ -339,11 +488,422 @@ function status(text, go = false) {
 }
 
 /* ------------------------------------------------------------------ */
-/* result                                                             */
+/* boxing cue + result                                                */
+/* ------------------------------------------------------------------ */
+function runBoxCue(msg) {
+  clearBoxCue();
+  hideBoxReport();
+  if ((msg.progress?.done ?? (Number(msg.rep) - 1)) === 0) resetBoxSessionView();
+  S.box.cue = { ...(msg.cue || {}), rep: msg.rep };
+  S.box.windowMs = clampNumber(msg.window_ms, 400, 5000, 1400);
+  const delay = clampNumber(msg.delay_ms, 0, 5000, 650);
+  S.box.cuePainted = false;
+  hideBoxVerdict();
+  hideReward();
+  setEdge("");
+  boxIdle("READY", "Watch the line");
+  const rep = msg.progress
+    ? `Rep ${Math.min(msg.progress.done + 1, msg.progress.total)}/${msg.progress.total}`
+    : msg.rep ? `Rep ${msg.rep}` : "Watch";
+  $("#boxLast").textContent = `${rep} · watch the line.`;
+
+  S.box.timers.push(setTimeout(paintBoxCue, delay));
+}
+
+function paintBoxCue() {
+  const cue = S.box.cue;
+  if (!cue) return;
+  const label = cue.label || boxingLabel(cue.action);
+  const side = cue.hand_side || boxingHandSide(cue.hand, cue.stance || S.stance);
+  const hand = boxingCueHand(cue, cue.stance || S.stance);
+  const word = $("#boxCueWord");
+  word.textContent = label;
+  word.classList.remove("idle", "box-good", "box-slow", "box-bad", "box-false");
+  word.classList.toggle("long", label.length > 6);
+
+  const handEl = $("#boxCueHand");
+  handEl.textContent = hand || "MATCH THE CUE";
+  handEl.classList.remove("idle");
+
+  const arrow = $("#boxArrowWrap");
+  arrow.dataset.side = side;
+  arrow.classList.add("show");
+  setRings(side);
+
+  // Ack immediately after the paint, matching the racing contract.
+  const tPaint = performance.now();
+  ws?.send({ type: "painted", ts: tPaint, clock: CLOCK_ID });
+  S.box.cuePainted = true;
+
+  $(".box-countdown").classList.remove("hidden");
+  $("#boxLast").textContent = cue.cue || "Match the cue.";
+  const bar = $("#boxCountBar");
+  bar.classList.remove("run");
+  bar.style.animationDuration = `${S.box.windowMs}ms`;
+  void bar.offsetWidth;
+  bar.classList.add("run");
+  startCountdown(S.box.windowMs);
+  navigator.vibrate?.(12);
+}
+
+function setRings(side) {
+  const active = side === "left" || side === "right" ? side : "center";
+  $$(".box-ring").forEach((ring) => {
+    ring.classList.toggle("on", ring.dataset.side === active);
+  });
+}
+
+function boxTone(msg) {
+  if (isEarly(msg)) return { key: "false", word: "FALSE START" };
+  const outcome = String(msg.outcome || "").toLowerCase();
+  if (outcome === "miss" || msg.miss) return { key: "bad", word: "MISS" };
+  if (outcome === "wrong" || msg.correct === false) return { key: "bad", word: "WRONG" };
+  if (msg.grade === "Y") return { key: "slow", word: "SOLID" };
+  if (msg.grade === "R") return { key: "bad", word: "SLOW" };
+  return { key: "good", word: "CLEAN" };
+}
+
+function mascotForResult(tone, msg) {
+  if (tone.key === "false" || tone.key === "bad") return "sad";
+  if (Number(S.player?.streak) >= 3) return "fire";
+  if (Number(msg.combo) >= 5) return "fire";
+  return "happy";
+}
+
+function mascotMood(value) {
+  const raw = typeof value === "string" ? value : value?.mood;
+  return ({ happy: "happy", neutral: "idle", tired: "sad", fire: "fire", idle: "idle", sad: "sad" })[raw] || "idle";
+}
+
+function startCountdown(ms) {
+  clearInterval(S.box.countTimer);
+  const end = performance.now() + ms;
+  const el = $("#boxCountdown");
+  el.textContent = `${(ms / 1000).toFixed(1)}s`;
+  S.box.countTimer = setInterval(() => {
+    const left = Math.max(0, end - performance.now());
+    el.textContent = `${(left / 1000).toFixed(1)}s`;
+    if (left <= 0) {
+      clearInterval(S.box.countTimer);
+      S.box.countTimer = null;
+    }
+  }, 100);
+}
+
+function boxIdle(word, hand) {
+  const w = $("#boxCueWord");
+  w.textContent = word || "READY";
+  w.classList.remove("box-good", "box-slow", "box-bad", "box-false", "long");
+  w.classList.add("idle");
+  const h = $("#boxCueHand");
+  h.textContent = hand || "";
+  h.classList.add("idle");
+  $("#boxArrowWrap").classList.remove("show");
+  $$(".box-ring").forEach((ring) => ring.classList.remove("on"));
+  $(".box-countdown").classList.add("hidden");
+  $("#boxCountBar").classList.remove("run");
+  if (S.box.mascotState !== "idle") setMascot("idle");
+}
+
+function clearBoxCue() {
+  S.box.timers.forEach(clearTimeout);
+  S.box.timers = [];
+  if (S.box.countTimer) {
+    clearInterval(S.box.countTimer);
+    S.box.countTimer = null;
+  }
+  S.box.cue = null;
+  S.box.cuePainted = false;
+  $("#boxCountBar").classList.remove("run");
+  $(".box-countdown").classList.add("hidden");
+  $("#boxArrowWrap").classList.remove("show");
+  $$(".box-ring").forEach((ring) => ring.classList.remove("on"));
+}
+
+function onBoxResult(msg) {
+  if (msg.player_id && PLAYER_ID && msg.player_id !== PLAYER_ID) return;
+  if (S.box.reportOpen) hideBoxReport();
+
+  const early = isEarly(msg);
+  const tone = boxTone(msg);
+  const cue = S.box.cue || {};
+  const expected = boxingLabel(msg.expected_action || msg.expected || cue.action);
+  const detected = early
+    ? tone.word
+    : msg.detected_action || msg.detected
+      ? boxingLabel(msg.detected_action || msg.detected)
+      : msg.correct
+        ? expected
+        : "—";
+  const rt = msg.reaction_ms ?? msg.rt_ms ?? null;
+  const progress = msg.progress || null;
+
+  if (S.box.countTimer) {
+    clearInterval(S.box.countTimer);
+    S.box.countTimer = null;
+  }
+  $("#boxCountBar").classList.remove("run");
+  $(".box-countdown").classList.add("hidden");
+
+  const word = $("#boxCueWord");
+  word.textContent = expected;
+  word.classList.remove("idle", "box-good", "box-slow", "box-bad", "box-false");
+  word.classList.toggle("long", expected.length > 6);
+  word.classList.add(`box-${tone.key}`);
+
+  const handEl = $("#boxCueHand");
+  handEl.textContent = cue.hand ? boxingCueHand(cue, S.stance) : "MATCH THE CUE";
+  handEl.classList.remove("idle");
+
+  const edgeColor = msg.edge?.color || (msg.correct ? "G" : msg.false_start ? "F" : "R");
+  flashResultEdge(edgeColor, msg.edge?.ms || 900);
+  navigator.vibrate?.(msg.correct ? 55 : [40, 50, 40]);
+
+  S.box.combo = msg.combo != null ? Number(msg.combo) : (msg.correct ? S.box.combo + 1 : 0);
+  S.box.xp += Number(msg.xp?.total || 0);
+  if (progress?.accuracy != null) S.box.accuracy = progress.accuracy;
+  else if (msg.session_stats?.accuracy != null) S.box.accuracy = msg.session_stats.accuracy;
+  S.box.session = progress || msg.session_stats || S.box.session;
+  setCombo(S.box.combo);
+  setXp(S.box.xp);
+  setAccuracy(S.box.accuracy);
+  if (msg.player) { S.player = msg.player; renderHud(msg.player); }
+  setMascot(msg.mascot || mascotForResult(tone, msg));
+  renderReward(msg.stars, msg.chest);
+
+  $("#vExpected").textContent = `EXPECTED ${expected}`;
+  $("#vDetected").textContent = early
+    ? tone.word
+    : msg.outcome === "miss"
+      ? `${tone.word} · NO ACTION`
+      : `${tone.word} · ${detected}`;
+  $("#vMark").innerHTML = msg.correct ? SVG_CHECK : SVG_CROSS;
+  const verdict = $("#boxVerdict");
+  verdict.className = `box-verdict box-${tone.key}`;
+  verdict.classList.remove("hidden");
+
+  const bits = [];
+  if (rt != null) bits.push(`${fmtMs(rt)} ms`);
+  else if (msg.correct) bits.push("held guard");
+  if (msg.execution_ms != null) bits.push(`exec ${fmtMs(msg.execution_ms)} ms`);
+  if (msg.xp?.total) bits.push(`+${msg.xp.total} XP`);
+  if (msg.ghost_delta != null) bits.push(`${fmtSigned(msg.ghost_delta)} vs ghost`);
+  if (progress) {
+    bits.push(`rep ${progress.done}/${progress.total}`);
+    bits.push(fmtPct(progress.accuracy));
+  }
+  $("#boxLast").textContent = bits.join(" · ") || "Cue scored.";
+  S.phase = "result";
+}
+
+function isEarly(msg) {
+  const detected = String(msg?.detected ?? "").toLowerCase();
+  return msg?.false_start === true || /false|early|anticip/.test(detected);
+}
+
+const EDGE_TONES = { G: "good", Y: "slow", R: "bad", F: "false" };
+
+function edgeTone(color) {
+  return EDGE_TONES[String(color || "G").toUpperCase()] || "good";
+}
+
+function flashResultEdge(color, ms = 900) {
+  const c = String(color || "G").toUpperCase();
+  if (window.Split2ndEdge && typeof window.Split2ndEdge.flash === "function") {
+    try { window.Split2ndEdge.flash(c, ms); return; } catch {}
+  }
+  flashEdge(edgeTone(c));
+}
+
+function flashEdge(tone) {
+  if (!tone) return;
+  const el = $("#edge");
+  clearTimeout(S.box.edgeTimer);
+  el.className = "box-vignette";
+  void el.offsetWidth;
+  el.classList.add(`box-vignette--${tone}`, "is-flashing");
+  S.box.edgeTimer = setTimeout(() => {
+    el.className = "box-vignette";
+  }, 320);
+}
+
+function setEdge(tone) {
+  clearTimeout(S.box.edgeTimer);
+  S.box.edgeTimer = null;
+  const el = $("#edge");
+  el.className = tone ? `box-vignette box-vignette--${tone}` : "box-vignette";
+}
+
+function setCombo(n) {
+  const value = Math.max(0, Number(n) || 0);
+  S.box.combo = value;
+  $("#boxCombo").textContent = String(value);
+  $$("#boxComboDots i").forEach((el, i) => {
+    el.classList.toggle("on", i < Math.min(value, 5));
+  });
+}
+
+function setXp(n) {
+  const value = Math.max(0, Number(n) || 0);
+  S.box.xp = value;
+  $("#boxXp").textContent = `+${value}`;
+  // The set target is 100 XP; the bar is a session motivator, not a level.
+  $("#boxXpBar").style.width = `${Math.min(100, value)}%`;
+}
+
+function setAccuracy(value) {
+  S.box.accuracy = value;
+  $("#boxAcc").textContent = fmtPct(value);
+}
+
+function resetBoxSessionView() {
+  setCombo(0);
+  setXp(0);
+  setAccuracy(null);
+  S.box.session = null;
+  hideBoxVerdict();
+  hideReward();
+  $("#boxLast").textContent = "Camera preview is live. The controller starts the set.";
+}
+
+function hideBoxVerdict() {
+  const el = $("#boxVerdict");
+  el.className = "box-verdict hidden";
+  el.classList.add("hidden");
+  $("#vMark").innerHTML = "";
+}
+
+function renderReward(stars, chest) {
+  const reward = $("#boxReward");
+  const starWrap = $("#boxStars");
+  const chestEl = $("#boxChest");
+  let any = false;
+
+  if (stars !== null && stars !== undefined) {
+    const n = clampNumber(stars, 0, 3, 0);
+    starWrap.innerHTML = starsHtml(stars);
+    starWrap.setAttribute("role", "img");
+    starWrap.setAttribute("aria-label", `${n} of 3 stars`);
+    any = true;
+  } else {
+    starWrap.innerHTML = "";
+    starWrap.removeAttribute("role");
+    starWrap.removeAttribute("aria-label");
+  }
+
+  const chestText = chestLabel(chest);
+  if (chestText) {
+    chestEl.innerHTML = `${BADGE_CHEST}<span>${esc(chestText)}</span>`;
+    chestEl.classList.remove("hidden");
+    any = true;
+  } else {
+    chestEl.innerHTML = "";
+    chestEl.classList.add("hidden");
+  }
+
+  reward.classList.toggle("hidden", !any);
+}
+
+function hideReward() {
+  const reward = $("#boxReward");
+  reward.classList.add("hidden");
+  $("#boxStars").innerHTML = "";
+  $("#boxChest").innerHTML = "";
+  $("#boxChest").classList.add("hidden");
+}
+
+/* ------------------------------------------------------------------ */
+/* session report                                                     */
+/* ------------------------------------------------------------------ */
+function reportActionRows(report) {
+  if (!report) return [];
+  if (Array.isArray(report.per_action)) return report.per_action;
+  if (report.by_action && typeof report.by_action === "object") {
+    return Object.entries(report.by_action).map(([action, value]) => ({ action, ...value }));
+  }
+  return [];
+}
+
+function onSessionEnd(msg) {
+  const report = msg.report || {};
+  S.box.report = report;
+  S.box.reportOpen = true;
+  clearBoxCue();
+  const starCount = Number(msg.stars);
+  setMascot(msg.mascot || (Number.isFinite(starCount) && starCount < 2 ? "sad" : "happy"));
+
+  $("#reportAccuracy").textContent = fmtPct(report.accuracy);
+  const reportStarCount = clampNumber(msg.stars, 0, 3, 0);
+  $("#reportStars").innerHTML = starsHtml(msg.stars);
+  $("#reportStars").setAttribute("role", "img");
+  $("#reportStars").setAttribute("aria-label", `${reportStarCount} of 3 stars`);
+  const chest = chestParts(msg.chest);
+  $("#reportChest").innerHTML = chest.title
+    ? `${BADGE_CHEST}<span>${esc(chest.title)}</span>${chest.detail ? `<small>${esc(chest.detail)}</small>` : ""}`
+    : "";
+  $("#reportBias").textContent = "--";
+  $("#reportFatigue").textContent = formatFatigue(report.fatigue);
+  $("#reportGuard").textContent = report.guard_drops ?? "--";
+  $("#reportBreaks").textContent = report.combo_breaks ?? "--";
+
+  const per = reportActionRows(report);
+  $("#reportActions").innerHTML = per.length
+    ? per.map((a) => `
+      <div class="report-action-row">
+        <span class="ra-name">${esc(boxingLabel(a.action))}</span>
+        <span class="ra-acc">${fmtPct(a.accuracy)}</span>
+        <span class="ra-rt">${(a.median_rt_ms ?? a.median_rt) != null ? `${fmtMs(a.median_rt_ms ?? a.median_rt)} ms` : "--"}</span>
+      </div>`).join("")
+    : `<div class="box-empty">No per-action data.</div>`;
+
+  const ghost = ghostLabel(msg.ghost);
+  const ghostEl = $("#reportGhost");
+  ghostEl.classList.toggle("hidden", !ghost);
+  ghostEl.innerHTML = ghost ? `<span>Ghost</span><b>${esc(ghost)}</b>` : "";
+
+  if (msg.player) { S.player = msg.player; renderHud(msg.player); }
+  if (report.accuracy != null) setAccuracy(report.accuracy);
+  const setXpEl = $("#boxXp");
+  if (setXpEl) setXpEl.textContent = `+${S.box.xp}`;
+
+  const el = $("#boxReport");
+  el.classList.remove("hidden");
+  el.scrollTop = 0;
+}
+
+function hideBoxReport() {
+  S.box.reportOpen = false;
+  $("#boxReport").classList.add("hidden");
+}
+
+$("#reportDone").onclick = () => {
+  hideBoxReport();
+  boxIdle("READY", "WAITING FOR CONTROLLER");
+};
+
+$("#reportNext").onclick = () => {
+  hideBoxReport();
+  resetBoxSessionView();
+  const payload = {
+    cmd: "start",
+    player_id: PLAYER_ID,
+    mode: "boxing",
+    stance: S.stance,
+    ghost_session_id: null,
+  };
+  const sent = ws?.send(payload);
+  toast(sent ? "Next set requested" : "Offline - reconnect first");
+};
+
+/* ------------------------------------------------------------------ */
+/* racing result                                                      */
 /* ------------------------------------------------------------------ */
 function onResult(msg) {
   clearTimers();
   setLightsOff();
+  hideBoxReport();
+  hideBoxVerdict();
+  setEdge("");
 
   if (msg.bot) {
     toast(`BOT ${msg.rt_ms} ms`);
@@ -358,6 +918,7 @@ function onResult(msg) {
 
   S.phase = "result";
   status("");
+  flashResultEdge(msg.edge?.color || msg.grade, msg.edge?.ms || 900);
   navigator.vibrate?.(70);
 
   const rt = msg.rt_ms;
@@ -454,9 +1015,13 @@ function onRoomDone(room) {
 /* ------------------------------------------------------------------ */
 function renderHud(player) {
   if (!player) return;
+  const level = player.level?.level ?? player.level ?? 1;
   $("#hudName").textContent = player.name || "Athlete";
-  $("#hudLevel").textContent = player.level?.level ?? player.level ?? 1;
+  $("#hudLevel").textContent = level;
   $("#hudStreak").textContent = player.streak ?? 0;
+  $("#boxName").textContent = player.name || "Athlete";
+  $("#boxLevel").textContent = `LVL ${level}`;
+  $("#boxStreak").textContent = player.streak ?? 0;
 }
 
 function renderRoomPill() {
@@ -477,6 +1042,125 @@ async function refreshBoard() {
       <div class="row"><b>${esc(r.name)}</b><span>${fmtMs(r.best_ms)}</span></div>
     `).join("");
   } catch {}
+}
+
+/* ------------------------------------------------------------------ */
+/* mascot                                                             */
+/* ------------------------------------------------------------------ */
+async function probeMascot() {
+  if (S.box.mascotOk !== null) return;
+  try {
+    const res = await fetch("/static/assets/mascot-idle.svg", {
+      method: "HEAD",
+      cache: "no-store",
+    });
+    S.box.mascotOk = res.ok;
+  } catch {
+    S.box.mascotOk = false;
+  }
+  setMascot(S.box.mascotState);
+}
+
+function setMascot(state) {
+  const mood = mascotMood(state);
+  S.box.mascotState = mood;
+  const el = $("#boxMascot");
+  if (!el) return;
+  el.dataset.mood = mood;
+  if (!S.box.mascotOk) {
+    if (!el.querySelector("svg")) el.innerHTML = GLOVE_SVG;
+    return;
+  }
+  el.innerHTML = `<img src="/static/assets/mascot-${mood}.svg" alt="" width="82" height="82">`;
+  const img = el.querySelector("img");
+  img?.addEventListener("error", () => {
+    S.box.mascotOk = false;
+    el.dataset.mood = mood;
+    el.innerHTML = GLOVE_SVG;
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* formatting helpers                                                 */
+/* ------------------------------------------------------------------ */
+function starsHtml(stars) {
+  const n = clampNumber(stars, 0, 3, 0);
+  return Array.from({ length: 3 }, (_, i) =>
+    `<img class="box-star ${i < n ? "" : "off"}" src="/static/assets/badge-star.svg" alt="">`
+  ).join("");
+}
+
+function chestParts(chest) {
+  if (chest === null || chest === undefined || chest === false) return { title: "", detail: "" };
+  if (typeof chest === "string") return { title: chest, detail: "" };
+  if (typeof chest === "boolean") return { title: chest ? "Chest" : "", detail: "" };
+  if (typeof chest === "object") {
+    const tier = chest.tier && chest.tier !== "none" ? String(chest.tier) : "";
+    const title = String(chest.title || chest.name || chest.label || chest.id || "") || (tier ? `${tier} chest` : "");
+    const detail = String(chest.detail || (tier && !chest.title ? tier : "") || "");
+    return { title, detail };
+  }
+  return { title: String(chest), detail: "" };
+}
+
+function chestLabel(chest) {
+  return chestParts(chest).title;
+}
+
+function ghostLabel(ghost) {
+  if (!ghost) return "";
+  if (typeof ghost === "string") return ghost;
+  if (typeof ghost === "number") return `${fmtMs(ghost)} ms`;
+  const name = ghost.name || "Ghost";
+  const rt = ghost.rt_ms ?? ghost.rt ?? ghost.reaction_ms;
+  return rt != null ? `${name} · ${fmtMs(rt)} ms` : name;
+}
+
+function formatLeadRear(value) {
+  if (value === null || value === undefined) return "--";
+  if (typeof value === "number") return `delta ${fmtSigned(value)}`;
+  if (typeof value === "string") return value;
+  if (typeof value === "object") {
+    const lead = value.lead_ms ?? value.lead ?? value.l;
+    const rear = value.rear_ms ?? value.rear ?? value.r;
+    const delta = value.delta_ms ?? value.delta ?? value.bias_ms;
+    if (lead != null || rear != null) {
+      return `L ${lead != null ? fmtMs(lead) : "--"} · R ${rear != null ? fmtMs(rear) : "--"}${delta != null ? ` · ${fmtSigned(delta)}` : ""}`;
+    }
+    if (delta != null) return `delta ${fmtSigned(delta)}`;
+    const bits = Object.entries(value).map(([k, v]) =>
+      `${k.replace(/_/g, " ")} ${typeof v === "number" ? fmtSigned(v) : v}`
+    );
+    return bits.join(" · ") || "--";
+  }
+  return String(value);
+}
+
+function formatFatigue(value) {
+  if (value === null || value === undefined) return "--";
+  if (typeof value === "boolean") return value ? "yes" : "no";
+  if (typeof value === "number") {
+    const n = Math.abs(value) <= 1 ? value * 100 : value;
+    return `${n > 0 ? "+" : ""}${Math.round(n)}%`;
+  }
+  if (typeof value === "string") return value;
+  if (typeof value === "object") {
+    const direct = value.pct ?? value.percent ?? value.delta_pct;
+    if (direct != null && Number.isFinite(Number(direct))) {
+      const pct = Math.round(Number(direct) * 10) / 10;
+      return `${pct > 0 ? "+" : ""}${pct}%`;
+    }
+    const n = value.slowing_pct ?? value.value;
+    if (n != null && Number.isFinite(Number(n))) {
+      const pct = Math.abs(Number(n)) <= 1 ? Number(n) * 100 : Number(n);
+      return `${pct > 0 ? "+" : ""}${Math.round(pct)}%`;
+    }
+    const bits = Object.entries(value).map(([k, v]) =>
+      `${k.replace(/_/g, " ")} ${typeof v === "number" ? fmtSigned(v) : v}`
+    );
+    return bits.join(" · ") || "--";
+  }
+  return String(value);
 }
 
 /* ------------------------------------------------------------------ */

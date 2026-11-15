@@ -3,11 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0a0c0b">
+<meta name="theme-color" content="#080A09">
 <title>Split2nd · Reflex Lab</title>
 <link rel="stylesheet" href="/static/app.css">
-<link rel="stylesheet" href="/static/edge.css">
-<link rel="stylesheet" href="/static/camera.css">
+<link rel="icon" href="/static/assets/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/assets/icon-1024.svg">
+<link rel="manifest" href="/static/manifest.webmanifest">
+<link rel="stylesheet" href="/static/boxing.css">
 </head>
 <body>
 <header class="topbar">
@@ -18,26 +20,28 @@
     <span class="pill"><i class="dot" id="dotClients"></i><b id="clientText">0</b> CLIENTS</span>
   </div>
   <div class="top-actions">
+    <div class="mode-toggle" id="ctrlMode" role="group" aria-label="Training mode">
+      <button type="button" data-mode="racing" aria-pressed="true">Racing</button>
+      <button type="button" data-mode="boxing" aria-pressed="false">Boxing</button>
+    </div>
     <select id="playerSelect" title="Active athlete"></select>
     <button class="btn btn-sm" id="addPlayer">+ Athlete</button>
-    <button class="btn btn-sm" id="copyLink">Player link</button>
-    <a class="btn btn-sm" href="/play" target="_blank" rel="noopener">Phone view ↗</a>
   </div>
 </header>
 
 <main class="wrap">
-  <div class="grid">
+  <div class="grid race-console" id="raceConsole">
     <section class="card col-5 drill">
       <div class="card-head">
         <span>Live session</span>
         <span class="chip" id="phaseChip">idle</span>
       </div>
-      <div class="rt-line">
-        <span class="rt-value" id="lastRt">--</span>
-        <span class="rt-unit">ms</span>
+      <div class="rt-line is-idle" id="rtLine">
+        <span class="rt-value" id="lastRt">READY</span>
+        <span class="rt-unit" id="rtUnit">ms</span>
         <span class="rt-grade" id="lastGrade">--</span>
       </div>
-      <div class="meta" id="lastMeta">No reps yet. Pick an athlete and press start.</div>
+      <div class="meta" id="lastMeta">No reps yet. Pick an athlete and start a set.</div>
       <button class="btn-primary" id="startBtn">START REP <kbd>SPACE</kbd></button>
       <div class="controls">
         <label>Gate
@@ -47,13 +51,12 @@
         <label>Camera
           <select id="source">
             <option value="auto">Auto</option>
-            <option value="phone">Phone</option>
             <option value="local">Laptop</option>
           </select>
         </label>
         <label><input type="checkbox" id="autoNext"> Auto-advance</label>
       </div>
-      <div class="hint" id="hint">The phone paints; the laptop scores.</div>
+      <div class="hint" id="hint">The laptop camera is the sensor; the screen is the stimulus.</div>
       <details class="dev">
         <summary>Dev / hardware checks</summary>
         <div class="dev-row">
@@ -67,20 +70,20 @@
     </section>
 
     <section class="card col-4 preview">
-      <div class="card-head">Camera <span class="chip" id="camChip">no signal</span><button class="btn btn-sm" id="camExpand" type="button">Expand</button></div>
+      <div class="card-head">Camera <span class="chip" id="camChip">no signal</span></div>
       <div class="video-wrap">
         <img id="video" src="/video" alt="Live camera preview">
         <div class="nosignal" id="nosignal">WAITING FOR FRAMES</div>
       </div>
-      <div class="cam-meta" id="camMeta"><span id="camStats">--</span><span id="camDistance">GATE 30 · DIST --</span></div>
+      <div class="cam-meta" id="camMeta">--</div>
     </section>
 
     <section class="card col-3 leaderboard">
-      <div class="card-head">Leaderboard <span class="chip">racing</span></div>
+      <div class="card-head">Leaderboard <span class="chip" id="boardChip">racing</span></div>
       <ol class="board" id="board"></ol>
     </section>
 
-    <section class="card col-4 room">
+    <section class="card col-4 room hidden" id="roomCard">
       <div class="card-head">Head to head <span class="chip" id="roomChip">no room</span></div>
       <div id="roomBody"></div>
       <div class="room-actions">
@@ -94,7 +97,7 @@
       <div class="card-head">Rep log <span class="chip" id="repChip">0 reps</span></div>
       <div class="table-wrap">
         <table class="reps">
-          <thead><tr><th>Time</th><th>Athlete</th><th>RT</th><th>Grade</th><th>Z</th><th>XP</th></tr></thead>
+          <thead id="repHead"><tr><th>Time</th><th>Athlete</th><th>RT</th><th>Grade</th><th>Z</th><th>XP</th></tr></thead>
           <tbody id="repBody"><tr><td colspan="6">No reps yet.</td></tr></tbody>
         </table>
       </div>
@@ -110,6 +113,104 @@
     </section>
   </div>
 
+  <!-- Boxing console: asymmetric, operator-facing, between sets. -->
+  <div class="box-console hidden" id="boxConsole">
+    <section class="console-panel bc-left">
+      <div class="console-kicker">Next set</div>
+      <div class="console-athlete">
+        <b id="consoleName">Athlete</b>
+        <span class="chip" id="consoleLevel">LVL 1</span>
+        <span class="chip" id="boxPhaseChip">idle</span>
+      </div>
+
+      <div class="console-goal">
+        <div class="console-goal-head"><span>Today</span><b id="consoleDaily">0 / 20 reps</b></div>
+        <div class="console-goal-bar"><i id="consoleDailyBar"></i></div>
+        <div class="console-streak">
+          <img src="/static/assets/badge-streak.svg" alt="" width="24" height="24">
+          <b id="consoleStreak">0</b> day streak
+        </div>
+      </div>
+
+      <div class="console-last">
+        <span class="console-label">Last cue</span>
+        <div class="console-last-line">
+          <b id="boxLastRt" class="is-empty">—</b>
+          <span class="console-unit">ms</span>
+          <span class="console-grade" id="boxLastGrade">—</span>
+        </div>
+        <div class="console-last-meta" id="boxLastMeta">No cues yet.</div>
+        <div class="console-xp-chips hidden" id="boxXpChips"></div>
+      </div>
+
+      <div class="console-controls">
+        <label>Stance
+          <select id="stanceSelect">
+            <option value="orthodox">Orthodox</option>
+            <option value="southpaw">Southpaw</option>
+          </select>
+        </label>
+        <label>Ghost
+          <select id="ghostSelect" title="Ghost session">
+            <option value="">Solo / personal best</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="console-actions">
+        <button class="btn-primary" id="boxStartBtn" type="button">START SET <kbd>SPACE</kbd></button>
+        <button class="btn arena-open-btn" id="arenaBtn" type="button" aria-pressed="false">ARENA</button>
+      </div>
+      <div class="console-hint" id="boxHint">Step back so your head and both hands are in frame. Pick a stance and ghost, then start a set.</div>
+      <div class="console-keys">SPACE start set · F fullscreen · ESC exit arena · B boxing · R racing</div>
+    </section>
+
+    <div class="bc-right">
+      <section class="console-panel bc-telemetry">
+        <div class="console-head"><span>Telemetry</span><span class="chip" id="boxSetChip">no set</span></div>
+        <div class="box-kpis bc-kpis">
+          <div class="box-kpi"><span>Accuracy</span><b id="ctrlBoxAcc">--</b></div>
+          <div class="box-kpi"><span>Lead / rear</span><b id="ctrlBoxBias">--</b></div>
+          <div class="box-kpi"><span>Fatigue</span><b id="ctrlBoxFatigue">--</b></div>
+          <div class="box-kpi"><span>Reps</span><b id="ctrlBoxReps">0</b></div>
+        </div>
+        <div class="console-subhead">Per action</div>
+        <div class="box-action-stats" id="ctrlBoxActions">
+          <div class="box-empty">Start a set to see per-action accuracy.</div>
+        </div>
+        <div class="console-subhead">Cue log <button class="text-button" id="clearCueLog" type="button">Clear</button></div>
+        <div class="box-cue-log" id="ctrlBoxCueLog">
+          <div class="box-empty">No cues yet. Start a set.</div>
+        </div>
+        <div class="box-summary hidden" id="ctrlBoxSummary" aria-live="polite"></div>
+        <div class="console-subhead">Recent reps <span class="chip" id="boxRepChip">0</span></div>
+        <div class="box-rep-list" id="boxRepList"><div class="box-empty">No reps yet.</div></div>
+      </section>
+
+      <section class="console-panel bc-camera">
+        <div class="console-head"><span>Camera</span><span class="chip" id="boxCamChip">no signal</span></div>
+        <div class="video-wrap bc-video-wrap">
+          <img id="boxCam" alt="Laptop camera preview">
+          <div class="nosignal" id="boxNosignal">WAITING FOR FRAMES</div>
+        </div>
+        <div class="cam-meta" id="boxCamMeta">--</div>
+      </section>
+
+      <section class="console-panel bc-board">
+        <div class="console-head"><span>Boxing leaderboard</span><span class="chip" id="boxBoardChip">boxing</span></div>
+        <ol class="board" id="boxBoard"></ol>
+      </section>
+    </div>
+
+    <section class="console-panel bc-evidence">
+      <div class="console-head"><span>Evidence</span><span class="console-note">one cited tip per result</span></div>
+      <div id="boxTipBody">
+        <div class="tip-headline">Compare you to you</div>
+        <div class="tip-body">Cue accuracy is the sports-relevant number. Every tip is tied to a published source.</div>
+      </div>
+    </section>
+  </div>
+
   <div class="foot">
     <span>SPLIT2ND v<span id="version">0.1.0</span></span>
     <span>·</span>
@@ -118,10 +219,168 @@
     <span><a href="/api/evidence" target="_blank">sources</a></span>
     <span>·</span>
     <span><a href="/cam" target="_blank">camera test</a></span>
-    <span>·</span>
-    <span id="phoneUrl"></span>
   </div>
 </main>
+
+<!-- Full-screen boxing arena. The webcam feed is the stage; the athlete
+     stands in the viewfinder and the screen is the stimulus. -->
+<section class="arena hidden" id="arena" aria-label="Boxing arena" data-tone="">
+  <img class="arena-video" id="arenaVideo" alt="">
+  <div class="arena-scrim" aria-hidden="true"></div>
+
+  <div class="arena-shell">
+    <header class="arena-top">
+      <div class="arena-hud arena-hud--tl">
+        <div class="brand arena-brand"><span class="mark">S2</span>SPLIT<em>2</em>ND <small>boxing arena</small></div>
+        <div class="arena-athlete">
+          <b id="arenaWho">Athlete</b>
+          <span id="arenaLevel">LVL 1</span>
+          <span id="arenaStanceLabel">Orthodox</span>
+          <span id="arenaRepLabel">No set</span>
+        </div>
+      </div>
+
+      <div class="arena-hud arena-hud--tr">
+        <span class="arena-mode">Boxing</span>
+        <span class="arena-timer" id="arenaTimer">00:00</span>
+        <span class="arena-conn" id="arenaConn"><i class="dot"></i>offline</span>
+        <button class="arena-tool" id="arenaFull" type="button">Fullscreen <kbd>F</kbd></button>
+        <button class="arena-tool" id="arenaExit" type="button">Exit <kbd>ESC</kbd></button>
+      </div>
+    </header>
+
+    <div class="arena-stage">
+      <div class="arena-viewfinder" id="arenaViewfinder" aria-hidden="true">
+        <i class="vf-corner vf-tl"></i>
+        <i class="vf-corner vf-tr"></i>
+        <i class="vf-corner vf-bl"></i>
+        <i class="vf-corner vf-br"></i>
+        <div class="arena-ms-strip">
+          <span id="arenaMsLabel">Window</span>
+          <b id="arenaMsValue">--</b>
+          <em>ms</em>
+        </div>
+      </div>
+
+      <div class="arena-rings" aria-hidden="true">
+        <i class="arena-ring ring-lead" data-side="left"></i>
+        <i class="arena-ring ring-rear" data-side="right"></i>
+        <i class="arena-ring ring-center" data-side="center"></i>
+      </div>
+
+      <div class="arena-arrow-wrap" id="boArrowWrap" data-side="center" aria-hidden="true">
+        <svg class="arena-arrow" id="boArrow" viewBox="0 0 100 100"><path d="M50 7 L84 43 H62 V93 H38 V43 H16 Z"/></svg>
+      </div>
+
+      <div class="arena-cue">
+        <div class="arena-cue-word idle" id="boWord" aria-live="assertive">READY</div>
+        <div class="arena-cue-hand" id="boHand">Head and both hands in frame</div>
+        <div class="arena-countdown hidden" id="arenaCountdownWrap" aria-hidden="true">
+          <div class="arena-countdown-bar"><i id="boTimerBar"></i></div>
+          <span id="boCount">--</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="arena-bottom">
+      <div class="arena-result hidden" id="arenaResult" aria-live="polite">
+        <div class="arena-result-side">
+          <span id="arenaExpected">EXPECTED</span>
+          <span class="arena-mark" id="arenaMark" aria-hidden="true"></span>
+          <span id="arenaDetected">DETECTED</span>
+        </div>
+        <div class="arena-result-rt"><b id="arenaRt">--</b><span>ms</span></div>
+        <div class="arena-result-grade" id="arenaGrade">—</div>
+        <div class="arena-result-ghost" id="arenaGhost">--</div>
+      </div>
+      <div class="arena-last" id="arenaLast">Step back so your head and both hands are in frame. Press Start set.</div>
+      <div class="arena-reward is-empty" id="arenaReward">
+        <span class="arena-stars" id="arenaStars"></span>
+        <span class="arena-chest hidden" id="arenaChest"></span>
+      </div>
+
+      <div class="arena-bottom-row">
+        <div class="arena-hud arena-hud--bl">
+          <div class="arena-stat">
+            <span>Combo</span>
+            <div class="arena-combo-line">
+              <b id="arenaCombo">0</b>
+              <span class="arena-dots" id="arenaComboDots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+            </div>
+          </div>
+          <div class="arena-stat">
+            <span>Accuracy</span>
+            <b id="arenaAcc">--</b>
+          </div>
+        </div>
+
+        <div class="arena-center">
+          <button class="btn-primary arena-start" id="arenaStart" type="button">START SET <kbd>SPACE</kbd></button>
+          <div class="arena-hint">SPACE start set · F fullscreen · ESC exit arena · B boxing · R racing</div>
+        </div>
+
+        <div class="arena-hud arena-hud--br">
+          <div class="arena-stat arena-xp">
+            <span>Set XP</span>
+            <b id="arenaXp">+0</b>
+            <div class="arena-xp-bar"><i id="arenaXpBar"></i></div>
+          </div>
+          <div class="arena-stat arena-streak">
+            <span>Streak</span>
+            <b><img src="/static/assets/badge-streak.svg" alt="" width="24" height="24"><span id="arenaStreak">0</span></b>
+          </div>
+          <div class="arena-mascot" id="arenaMascot" data-mood="idle" aria-hidden="true">
+            <img id="arenaMascotImg" src="/static/assets/mascot-idle.svg" alt="">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="box-vignette arena-edge" id="arenaEdge" aria-hidden="true"></div>
+
+<section class="box-report arena-report hidden" id="arenaReport" aria-labelledby="arenaReportTitle">
+  <div class="box-report-inner">
+    <div class="report-top">
+      <div class="report-kicker">Session complete</div>
+      <h2 id="arenaReportTitle">Boxing set</h2>
+      <div class="report-stars" id="arenaReportStars"></div>
+    </div>
+
+    <div class="report-hero">
+      <div>
+        <span class="box-metric-label">Accuracy</span>
+        <div class="report-accuracy" id="arenaReportAccuracy">--</div>
+      </div>
+      <div class="report-chest" id="arenaReportChest"></div>
+    </div>
+
+    <div class="arena-report-stats">
+      <span>Cues <b id="arenaReportCues">--</b></span>
+      <span>Median RT <b id="arenaReportMedian">--</b></span>
+      <span>Lead / rear <b id="arenaReportBias">--</b></span>
+      <span>Fatigue <b id="arenaReportFatigue">--</b></span>
+      <span>Guard drops <b id="arenaReportGuard">--</b></span>
+      <span>Combo breaks <b id="arenaReportBreaks">--</b></span>
+    </div>
+    <div class="arena-report-mood hidden" id="arenaReportMood"></div>
+
+    <div class="report-actions-wrap">
+      <div class="console-subhead">Per action</div>
+      <div class="report-actions" id="arenaReportActions"></div>
+    </div>
+
+    <div class="arena-report-tip hidden" id="arenaReportTip"></div>
+    <div class="report-ghost hidden" id="arenaReportGhost"></div>
+
+    <div class="report-buttons">
+      <button class="btn btn-primary" id="arenaReportNext" type="button">Next set</button>
+      <button class="btn" id="arenaReportClose" type="button">Exit arena</button>
+    </div>
+    <div class="tiny report-tiny">Shadow-box only. Nobody punches the laptop or the sensor.</div>
+  </div>
+</section>
 
 <div class="stim-overlay hidden" id="stimOverlay">
   <div class="overlay-label" id="overlayLabel">LIGHTS OUT</div>
@@ -133,7 +392,6 @@
 </div>
 
 <div id="toast"></div>
-<script src="/static/edge.js" defer></script>
 <script type="module" src="/static/controller.js"></script>
 </body>
 </html>

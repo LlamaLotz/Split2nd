@@ -513,7 +513,7 @@ body:not(.mode-boxing) .box-only { display: none !important; }
 }
 
 .console-streak img { width: 24px; height: 24px; display: block; }
-.console-streak b { font-family: var(--mono); font-weight: 600; color: var(--box-slow); }
+.console-streak b { font-family: var(--mono); font-weight: 600; color: var(--text); }
 
 .console-last {
   display: flex;
@@ -1140,7 +1140,7 @@ body.arena-open { overflow: hidden; }
 .arena-arrow {
   width: 100%;
   height: 100%;
-  fill: var(--box-slow);
+  fill: var(--box-good);
   transition: transform var(--dur-snap) var(--ease-out);
 }
 
@@ -1190,10 +1190,14 @@ body.arena-open { overflow: hidden; }
   line-height: var(--leading-h2);
   letter-spacing: var(--tracking-h2);
   font-weight: 500;
-  color: var(--box-slow);
+  color: var(--box-good);
 }
 
 .arena-cue-hand.idle { color: var(--muted); }
+.arena-cue-hand.box-good { color: var(--box-good); }
+.arena-cue-hand.box-slow { color: var(--box-slow); }
+.arena-cue-hand.box-bad { color: var(--box-bad); }
+.arena-cue-hand.box-false { color: var(--box-false); }
 
 .arena-countdown {
   position: absolute;
@@ -1420,7 +1424,7 @@ body.arena-open { overflow: hidden; }
 }
 
 .arena-combo-line { display: flex; align-items: baseline; gap: 8px; }
-.arena-combo-line b { color: var(--box-slow); }
+.arena-combo-line b { color: var(--text); }
 .arena-dots { display: inline-flex; align-items: center; gap: 3px; }
 .arena-dots i {
   width: 14px;
@@ -1428,7 +1432,7 @@ body.arena-open { overflow: hidden; }
   border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--chalk) 15%, transparent);
 }
-.arena-dots i.on { background: var(--box-slow); }
+.arena-dots i.on { background: var(--muted); }
 
 .arena-xp { min-width: 120px; }
 .arena-xp-bar {
@@ -1443,10 +1447,10 @@ body.arena-open { overflow: hidden; }
   width: 0;
   height: 100%;
   border-radius: inherit;
-  background: var(--box-good);
+  background: var(--line-bright);
   transition: width var(--dur-xp) var(--ease-out);
 }
-.arena-xp b { color: var(--box-good); }
+.arena-xp b { color: var(--text); }
 
 .arena-streak b { display: inline-flex; align-items: center; gap: 6px; }
 .arena-streak img { width: 24px; height: 24px; }

@@ -780,6 +780,10 @@ function renderPhase() {
   if (stance) stance.disabled = S.phase !== "idle";
   const ghost = $("#ghostSelect");
   if (ghost) ghost.disabled = S.phase !== "idle";
+  const athlete = $("#playerSelect");
+  if (athlete) athlete.disabled = S.phase !== "idle";
+  const addAthlete = $("#addPlayer");
+  if (addAthlete) addAthlete.disabled = S.phase !== "idle";
 
   updateArenaButtons();
 
@@ -928,6 +932,14 @@ function renderRoom() {
     const first = room.players.find((p) => !p.bot);
     if (first) ws.send({ cmd: "start", player_id: first.id, room: room.code, auto: true });
   };
+}
+
+function resetEvidenceCopy() {
+  const el = $("#boxTipBody");
+  if (!el) return;
+  el.innerHTML = `
+    <div class="tip-headline">Compare you to you</div>
+    <div class="tip-body">Cue accuracy is the sports-relevant number. Every tip is tied to a published source.</div>`;
 }
 
 function renderTip(tip) {
@@ -1252,12 +1264,12 @@ function setMode(mode, { persist = true, refresh = true } = {}) {
   const chip = $("#boardChip");
   if (chip) {
     chip.textContent = mode;
-    chip.className = "chip " + (mode === "boxing" ? "purple" : "live");
+    chip.className = "chip " + (mode === "racing" ? "live" : "");
   }
   const boxChip = $("#boxBoardChip");
   if (boxChip) {
     boxChip.textContent = mode;
-    boxChip.className = "chip " + (mode === "boxing" ? "purple" : "live");
+    boxChip.className = "chip " + (mode === "racing" ? "live" : "");
   }
 
   if (mode === "boxing") {
@@ -1418,7 +1430,7 @@ function renderConsoleChrome() {
   const chip = $("#boxBoardChip");
   if (chip) {
     chip.textContent = S.mode;
-    chip.className = "chip " + (S.mode === "boxing" ? "purple" : "live");
+    chip.className = "chip " + (S.mode === "racing" ? "live" : "");
   }
 }
 
@@ -1471,7 +1483,7 @@ function setArenaIdle(word = "READY", hand = "Head and both hands in frame") {
   w.classList.add("idle");
   const h = $("#boHand");
   h.textContent = hand;
-  h.classList.remove("idle");
+  h.classList.remove("idle", "box-good", "box-slow", "box-bad", "box-false");
   $("#boArrowWrap").classList.remove("show");
   $$(".arena-ring").forEach((ring) => ring.classList.remove("on"));
   $("#arenaCountdownWrap").classList.add("hidden");
@@ -1512,7 +1524,9 @@ function runArenaCue(msg) {
     word.textContent = label;
     word.classList.remove("idle", "box-good", "box-slow", "box-bad", "box-false");
     word.classList.toggle("long", label.length > 6);
-    $("#boHand").textContent = boxingCueHand(cue, cue.stance || S.stance) || "MATCH THE CUE";
+    const handEl = $("#boHand");
+    handEl.textContent = boxingCueHand(cue, cue.stance || S.stance) || "MATCH THE CUE";
+    handEl.classList.remove("idle", "box-good", "box-slow", "box-bad", "box-false");
     $("#boArrowWrap").dataset.side = side;
     $("#boArrowWrap").classList.add("show");
     setArenaRings(side);
@@ -1585,7 +1599,10 @@ function renderArenaResult(msg, tone, early) {
   word.classList.remove("idle", "box-good", "box-slow", "box-bad", "box-false");
   word.classList.toggle("long", expected.length > 6);
   word.classList.add(`box-${tone.key}`);
-  $("#boHand").textContent = cue?.hand ? boxingCueHand(cue, S.stance) : "MATCH THE CUE";
+  const handEl = $("#boHand");
+  handEl.textContent = cue?.hand ? boxingCueHand(cue, S.stance) : "MATCH THE CUE";
+  handEl.classList.remove("idle", "box-good", "box-slow", "box-bad", "box-false");
+  handEl.classList.add(`box-${tone.key}`);
   if (cue?.hand) setArenaRings(cue.hand_side || boxingHandSide(cue.hand, cue.stance || S.stance));
 
   $("#arenaExpected").textContent = `EXPECTED ${expected}`;
@@ -1957,8 +1974,10 @@ $("#playerSelect").onchange = (e) => {
   ws.send({ cmd: "select", player_id: S.playerId });
   refreshBoard();
   refreshDailyGoal();
+  refreshGhosts();
   S.box.profile = null;
-  renderBoxPanel();
+  resetBoxStats();
+  resetEvidenceCopy();
   refreshBoxingProfile();
   renderArenaChrome();
 };
@@ -1969,10 +1988,20 @@ $("#addPlayer").onclick = async () => {
   try {
     const p = await api("/api/players", { method: "POST", body: JSON.stringify({ name }) });
     S.playerId = p.id;
+    S.player = p;
     localStorage.setItem("s2.player", p.id);
     ws.send({ cmd: "select", player_id: p.id });
     S.players = await api("/api/players");
     renderPlayers();
+    refreshBoard();
+    refreshHistory();
+    refreshDailyGoal();
+    refreshGhosts();
+    S.box.profile = null;
+    resetBoxStats();
+    resetEvidenceCopy();
+    refreshBoxingProfile();
+    renderArenaChrome();
     toast(`${p.name} added`);
   } catch (err) { toast(err.message); }
 };

@@ -34,6 +34,23 @@ engine: DrillEngine
 PUBLIC_URL = os.getenv("PUBLIC_URL", "")
 
 
+def camera_info() -> dict[str, Any]:
+    """The integrated Lenovo camera configuration.
+
+    Kept out of ``VisionEngine`` so the camera contract can be read from
+    /api/health without changing the vision module.  The capture thread uses
+    CAP_DSHOW on Windows and the same 640x480 MJPG/30 fps request.
+    """
+    return {
+        "index": config.CAMERA_INDEX,
+        "width": config.CAMERA_WIDTH,
+        "height": config.CAMERA_HEIGHT,
+        "fps": config.CAMERA_FPS,
+        "backend": "DSHOW",
+        "fourcc": "MJPG",
+    }
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global store, rig, vision, manager, engine
@@ -184,6 +201,7 @@ async def health() -> dict[str, Any]:
         "ok": True,
         "version": config.VERSION,
         "rig": rig.status(),
+        "camera": camera_info(),
         "vision": vision.status(),
         "drill": engine.health(),
         "clients": manager.snapshot(),

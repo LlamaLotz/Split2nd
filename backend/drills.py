@@ -20,7 +20,7 @@ from typing import Any
 
 from . import boxing, config, evidence
 from .net import Client, ConnectionManager
-from .rig import BaseRig
+from .rig import BaseRig, led_color
 from .store import Store
 from .vision import VisionEngine, detect_onset
 from .xp import grade_for, median, xp_for_boxing
@@ -28,6 +28,35 @@ from .xp import grade_for, median, xp_for_boxing
 
 def _code() -> str:
     return "".join(random.choices("ABCDEFGHJKLMNPQRSTUVWXYZ", k=4))
+
+
+def feedback_color(mode: str, grade: str | None, *,
+                   correct: bool | None = None,
+                   false_start: bool = False,
+                   miss: bool = False) -> str:
+    """Colour of the feedback edge for one result.
+
+    Racing mirrors the RT grade; a false start is ``F`` (violet on screen,
+    red on the physical LED).  Boxing is action-first: a correct cue is green
+    even when it was slow, because the athlete did the right thing.  The RT
+    grade still exists in the payload for the result card and OLED.
+    """
+    if false_start:
+        return "F"
+    if (mode or "").strip().lower() == "boxing":
+        return "G" if correct else "R"
+    if miss:
+        return "R"
+    color = (grade or "").strip().upper()[:1]
+    return color if color in ("G", "Y", "R", "F") else "R"
+
+
+def edge_payload(color: str, ms: int | None = None) -> dict[str, Any]:
+    """The frozen `edge` object.  The page and the physical LED share it."""
+    return {
+        "color": color,
+        "ms": int(config.LED_GLOW_MS if ms is None else ms),
+    }
 
 
 @dataclass
@@ -144,6 +173,7 @@ class DrillEngine:
         self.offset = 0.0
         self.drill_clock = "backend"
         self.response_deadline = 0.0
+        self.last_dist_poll = 0.0
 
         self.hit_ms: int | None = None
         self.hit_cm: int | None = None
@@ -215,7 +245,12 @@ class DrillEngine:
         self.rig.gate(self.gate_cm)
 
     def set_led(self, value: str | None) -> None:
-        self.rig.led(value)
+        # A manual LED command is a diagnostic flash, not a latch.  `0` is
+        # an immediate off; a colour releases itself after LED_GLOW_MS.
+        if value is None or str(value).strip().upper().startswith("0"):
+            self.rig.led(None)
+        else:
+            self.rig.glow(value)
 
     def simulate(self, kind: str) -> None:
         fn = getattr(self.rig, "simulate", None)
@@ -465,6 +500,7 @@ class DrillEngine:
         now = time.perf_counter()
 
         if self.phase == "idle":
+            self._poll_distance(now)
             await self._maybe_bot(now)
             return
 
@@ -545,6 +581,22 @@ class DrillEngine:
             return time.perf_counter()
         return time.perf_counter() - self.offset
 
+    def _poll_distance(self, now: float) -> None:
+        """Read the gate distance only while idle.
+
+        DIST is for calibration, not timing.  Polling it during arm/wait/
+        response would add serial traffic (and an ultrasonic ping) exactly
+        when the rep is most sensitive, so the phase guard is deliberate.
+        """
+        if self.phase != "idle":
+            return
+        if not getattr(self.rig, "ready", False):
+            return
+        if now - self.last_dist_poll < config.DIST_POLL_MS / 1000.0:
+            return
+        self.last_dist_poll = now
+        self.rig.dist()
+
     def _detect(self) -> float | None:
         if not self.source:
             return None
@@ -581,6 +633,11 @@ class DrillEngine:
         if rt_ms is not None and rt_ms < config.FALSE_START_MS:
             false_start = True
             grade = "F"
+
+        edge_color = feedback_color("racing", grade, false_start=false_start,
+                                    miss=miss)
+        edge = edge_payload(edge_color)
+        led = led_color(edge_color)
 
         prev = self.store.get_player(self.player_id) or {}
         ghost = self.room.ghost_for(self.player_id) if self.room else prev.get("last_rt_ms")
@@ -628,7 +685,7 @@ class DrillEngine:
                 self.auto = False
 
         if not already_led:
-            self.rig.led(grade)
+            self.rig.glow(edge_color)
             self.rig.show(rt_ms or 0, grade, rec.get("best_ms"))
         self.rig.disarm()
 
@@ -657,6 +714,8 @@ class DrillEngine:
             "tip": tip,
             "room": self.room.summary() if self.room else None,
             "rep": self.rep_no,
+            "edge": edge,
+            "led": led,
         }
         self.result = payload
         self.last_result = payload
@@ -693,6 +752,7 @@ class DrillEngine:
         self.msg = "Ready"
         self.result = None
         self.rep_no = 0
+        self.rig.led(None)
         await self.broadcast_state()
         if self.room and self.room.status == "active":
             cur = self.room.current
@@ -768,6 +828,11 @@ class DrillEngine:
         accuracy = correct_count / done if done else 0.0
         xp = xp_for_boxing(correct, reaction_ms, self.combo, accuracy)
         grade = boxing.grade_for(reaction_ms, correct)
+        # Edge feedback is action-first: correct is green even when the RT
+        # grade is yellow/red.  The OLED still shows the RT grade via SHOW.
+        edge_color = feedback_color("boxing", grade, correct=correct)
+        edge = edge_payload(edge_color)
+        led = led_color(edge_color)
 
         ghost_ms = None
         if done - 1 < len(self.ghost_trace):
@@ -854,6 +919,8 @@ class DrillEngine:
             "ghost_ms": ghost_ms,
             "ghost_delta": ghost_delta,
             "rep": done,
+            "edge": edge,
+            "led": led,
         }
 
         # One evidence-backed tip per session: attach it to the final cue and
@@ -869,7 +936,7 @@ class DrillEngine:
                 self.session_tip = None
 
         best_ms = (rec.get("stats") or {}).get("best_rt_ms")
-        self.rig.led(grade)
+        self.rig.glow(edge_color)
         self.rig.show(reaction_ms or 0, grade, best_ms)
         self.rig.disarm()
 
@@ -1040,6 +1107,7 @@ class DrillEngine:
         self.result = None
         self.boxing_cue = None
         self.rep_no = 0
+        self.rig.led(None)
         await self.manager.broadcast(payload)
         await self.broadcast_state()
 
@@ -1095,6 +1163,7 @@ class DrillEngine:
             rt = max(190, rt - 18)
         grade = grade_for(rt, green_ms=config.SIMPLE_GREEN_MS,
                           yellow_ms=config.SIMPLE_YELLOW_MS)
+        edge_color = feedback_color("racing", grade)
         ghost = self.room.ghost_for(cur.id)
         self.room.submit(cur.id, rt)
         payload = {
@@ -1116,6 +1185,10 @@ class DrillEngine:
             "tip": None,
             "room": self.room.summary(),
             "rep": len(cur.rts),
+            # A bot turn is still a result shape, so the UI can reuse its
+            # renderer.  It never touches the physical LED.
+            "edge": edge_payload(edge_color),
+            "led": led_color(edge_color),
         }
         self.result = payload
         self.last_result = payload
@@ -1151,7 +1224,7 @@ class DrillEngine:
                 delta = int(ev["args"][0]) if ev.get("args") else 0
                 if delta:
                     self._cycle_player(delta)
-            if kind in ("HIT", "BTN", "ENC", "READY", "PONG"):
+            if kind in ("HIT", "BTN", "ENC", "READY", "PONG", "DIST"):
                 asyncio.create_task(self.manager.broadcast({
                     "type": "rig", "event": kind,
                     "args": ev.get("args", []), "raw": ev.get("raw", ""),
@@ -1186,6 +1259,7 @@ class DrillEngine:
             "source": self.source,
             "display": self.display_role,
             "gate_cm": self.gate_cm,
+            "last_distance_cm": getattr(self.rig, "last_distance_cm", None),
             "room": self.room.summary() if self.room else None,
             "result": self.last_result,
             "auto": self.auto,
@@ -1209,6 +1283,7 @@ class DrillEngine:
             "display": self.display_role,
             "gate_cm": self.gate_cm,
             "hit_ms": self.hit_ms,
+            "last_distance_cm": getattr(self.rig, "last_distance_cm", None),
             "error": self.last_error,
             "time": time.time(),
         }

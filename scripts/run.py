@@ -67,7 +67,15 @@ def main() -> None:
     print("\nSplit2nd (laptop rig)")
     print(f"  controller : {public_url}/")
     print(f"  health     : {public_url}/api/health")
-    print(f"  vision={args.vision} rig={args.rig}\n")
+    print(f"  camera     : index {args.camera} (Lenovo integrated, "
+          f"{os.getenv('CAMERA_WIDTH', '640')}x{os.getenv('CAMERA_HEIGHT', '480')}"
+          f" @ {os.getenv('CAMERA_FPS', '30')} fps, DSHOW on Windows)")
+    print(f"  vision={args.vision} rig={args.rig}")
+    if args.rig in ("auto", "serial"):
+        print("  rig hint   : close the Arduino IDE Serial Monitor; "
+              "one program owns COMx at a time.\n")
+    else:
+        print()
 
     if not use_tls:
         if not args.no_tls:

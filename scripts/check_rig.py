@@ -26,7 +26,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", default=config.RIG_PORT or "")
     ap.add_argument("--seconds", type=float, default=8.0)
-    ap.add_argument("--gate", type=int, default=0, help="send GATE <cm> if > 0")
+    ap.add_argument("--gate", type=int, default=0,
+                    help="send GATE <cm> if > 0 (the demo mount uses 60)")
     ap.add_argument("--led", action="store_true", help="cycle the G/Y/R LEDs")
     ap.add_argument("--list", action="store_true")
     args = ap.parse_args()
@@ -62,15 +63,30 @@ def main() -> None:
     print(f"connected={rig.connected} ready={rig.ready} handshake={rig.handshake}")
     if rig.last_error:
         print(f"last_error={rig.last_error}")
+        if getattr(rig, "port_busy", False):
+            print("\n!! The port is open in another program. Close the Arduino IDE")
+            print("!! Serial Monitor (or any other serial terminal) and run this again.")
+            print("!! The app keeps retrying on its own; nothing needs to be unplugged.")
+    if not rig.ready:
+        print("\nNo READY yet. Opening the port resets the Uno; wait ~2 s.")
+        print("Check the data cable, the board LED, and Device Manager -> Ports.")
+        rig.stop()
+        return
 
-    # READY is handled by the rig: it replies with DEMO 0 so the app owns
-    # the unit instead of the firmware's standalone demo loop.
+    # READY is handled by the rig: it replies DEMO 0, PING, VER so the app
+    # owns the unit instead of the firmware's standalone demo loop.
     rig.send("PING")
     rig.send("VER")
     rig.dist()
     if args.gate:
         rig.send(f"GATE {args.gate}")
         print(f"sent GATE {args.gate}")
+    time.sleep(0.6)
+    print(f"firmware={rig.firmware!r} i2c={rig.i2c!r} demo_on={rig.demo_on}")
+    print(f"last_distance_cm={rig.last_distance_cm}")
+    if rig.i2c == "NONE":
+        print("!! I2C NONE: the OLED was not found. LEDs/serial still work.")
+        print("!! Check A4/A5/5V/GND, then try 0x3D or OLED_TYPE 2.")
 
     if args.led:
         for value in ("G", "Y", "R", "0"):

@@ -27,6 +27,27 @@
   --mono: "SF Mono", "Cascadia Code", "Roboto Mono", ui-monospace, Menlo, Consolas, monospace;
   --sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
 
+  /* Type scale: size / line-height / tracking pairs. */
+  --text-display: clamp(58px, 8.5vw, 118px);
+  --leading-display: 0.9;
+  --tracking-display: -0.055em;
+
+  --text-h1: clamp(28px, 3.4vw, 40px);
+  --leading-h1: 1.08;
+  --tracking-h1: -0.03em;
+
+  --text-h2: clamp(18px, 2vw, 24px);
+  --leading-h2: 1.2;
+  --tracking-h2: -0.02em;
+
+  --text-body: 13px;
+  --leading-body: 1.55;
+  --tracking-body: 0;
+
+  --text-meta: 11px;
+  --leading-meta: 1.4;
+  --tracking-meta: 0.01em;
+
   /* --------------------------------------------------------------- radius */
   --radius: 14px;
   --radius-xs: 5px;
@@ -47,16 +68,27 @@
   --space-9: 30px;
 
   /* --------------------------------------------------------------- motion */
-  --motion-lights: 420ms;      /* light cadence, mirrored by LIGHT_INTERVAL_MS */
-  --motion-snap: 120ms;        /* result card / grade snap */
-  --motion-xp: 400ms;          /* XP bar / chip fill */
-  --motion-fast: 120ms;        /* hover and button feedback */
-  --motion-light-fade: 40ms;   /* a single lamp turning on/off */
-  --motion-go: 60ms;           /* GO text reveal */
-  --motion-toast: 180ms;       /* toast in/out */
-  --motion-blink: 1.4s;        /* camera recording dot */
+  /* One easing curve. Do not add a second bounce/spring curve. */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-snap: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-snap: 120ms;           /* result / grade snap + control feedback */
+  --dur-edge: 300ms;           /* arena / boxing edge glow */
+  --dur-light: 420ms;          /* start-light cadence, mirrored by LIGHT_INTERVAL_MS */
+  --dur-xp: 400ms;             /* XP bar / chip fill */
+  --dur-go: 60ms;              /* GO text reveal */
+  --dur-toast: 180ms;          /* toast in/out */
+  --dur-light-fade: 40ms;      /* a single lamp turning on/off */
+  --dur-rec: 2400ms;           /* slow live-camera dot; not decorative */
+
+  /* Backwards-compatible aliases used by the existing app.css. */
+  --motion-lights: var(--dur-light);
+  --motion-snap: var(--dur-snap);
+  --motion-edge: var(--dur-edge);
+  --motion-xp: var(--dur-xp);
+  --motion-fast: var(--dur-snap);
+  --motion-light-fade: var(--dur-light-fade);
+  --motion-go: var(--dur-go);
+  --motion-toast: var(--dur-toast);
+  --motion-blink: var(--dur-rec);
 
   /* ------------------------------------------------------------- surfaces */
   --bg: var(--ink);
@@ -64,13 +96,27 @@
   --panel-2: var(--graphite);
   --panel2: var(--panel-2);
   --panel-hover: color-mix(in srgb, var(--carbon) 72%, var(--line));
+
+  /* Dark-depth steps: page -> panel -> raised panel, each with its hairline. */
+  --surface-1: var(--ink);
+  --surface-2: var(--carbon);
+  --surface-3: var(--graphite);
+  --surface-1-hairline: var(--line-soft);
+  --surface-2-hairline: var(--line);
+  --surface-3-hairline: color-mix(in srgb, var(--line) 82%, var(--fog));
+
   --well: color-mix(in srgb, var(--ink) 82%, var(--graphite));
   --well-2: color-mix(in srgb, var(--ink) 88%, var(--graphite));
   --void: color-mix(in srgb, var(--ink) 55%, black);
   --void-deep: color-mix(in srgb, var(--ink) 40%, black);
-  --scrim: color-mix(in srgb, var(--ink) 88%, transparent);
-  --bg-glow-a: color-mix(in srgb, var(--signal) 9%, var(--ink));
-  --bg-glow-b: color-mix(in srgb, var(--signal) 5%, var(--ink));
+
+  /* Laptop arena HUD: translucent chrome that never competes with the cue. */
+  --hud-bg: color-mix(in srgb, var(--ink) 84%, transparent);
+  --hud-border: color-mix(in srgb, var(--line) 75%, transparent);
+  --hud-blur: blur(18px) saturate(1.08);
+  --arena-edge: color-mix(in srgb, var(--line) 72%, transparent);
+  --arena-edge-strong: var(--line-strong);
+
   --row-highlight: color-mix(in srgb, var(--signal) 7%, var(--ink));
   --row-hover: color-mix(in srgb, var(--carbon) 62%, var(--line));
   --track: color-mix(in srgb, var(--signal) 5%, var(--panel));
@@ -119,6 +165,10 @@
   --ring-subtle: color-mix(in srgb, white 3%, transparent);
   --glow-inset: color-mix(in srgb, white 18%, transparent);
 
+  /* Keyboard focus: ink gap, then signal. Use on every interactive control. */
+  --focus-ring-offset: 2px;
+  --focus-ring: 0 0 0 2px var(--ink), 0 0 0 4px var(--signal);
+
   /* ------------------------------------------------------ start-light rig */
   --light-off: color-mix(in srgb, var(--red) 14%, var(--void-deep));
   --light-off-line: color-mix(in srgb, var(--red) 18%, var(--line));
@@ -140,5 +190,5 @@
   --shadow-glow-good: 0 0 60px var(--box-glow-good);
   --shadow-glow-bad: 0 0 42px var(--box-glow-bad);
   --shadow-card: 0 24px 60px color-mix(in srgb, black 45%, transparent);
-  --shadow-focus: 0 0 0 3px color-mix(in srgb, var(--signal) 25%, transparent);
+  --shadow-focus: var(--focus-ring);
 }

@@ -19,7 +19,7 @@ const S = {
   connected: false,
   arenaOpen: false,
   arenaReportOpen: false,
-  mode: loadMode(),
+  mode: loadMode("boxing"),
   stance: localStorage.getItem("s2.stance") === "southpaw" ? "southpaw" : "orthodox",
   ghostSessionId: "",
   ghosts: [],
@@ -81,7 +81,6 @@ function handle(msg) {
       S.playerId = S.playerId || msg.player?.id || S.players[0]?.id || null;
       S.room = msg.state?.room || null;
       $("#version").textContent = msg.version || "0.1.0";
-      if (msg.config?.public_url) $("#phoneUrl").textContent = msg.config.public_url;
       renderPlayers();
       renderBoard(msg.leaderboard || []);
       applyState(msg.state || {});
@@ -148,7 +147,16 @@ function applyState(state) {
   const prev = S.phase;
   S.state = state;
   S.phase = state.phase || "idle";
+  if (state.gate_cm != null) {
+    $("#gate").value = state.gate_cm;
+    $("#gateVal").textContent = `${state.gate_cm} cm`;
+  }
+  if (typeof state.auto === "boolean") $("#autoNext").checked = state.auto;
+  if (state.source) {
+    $("#source").value = state.source === "local" ? "local" : "auto";
+  }
   if (state.room) S.room = state.room;
+  else if (state.room === null) S.room = null;
   if (state.player) {
     S.player = state.player;
     renderArenaChrome();
@@ -171,7 +179,7 @@ function applyState(state) {
   }
 
   renderPhase();
-  if (state.room) renderRoom();
+  renderRoom();
 
   if (S.arenaOpen && S.mode === "boxing") {
     if (S.phase === "arm") setArenaIdle("GET SET", "HANDS UP");
@@ -192,6 +200,7 @@ function handleResult(msg) {
   hideOverlay();
   if (!msg.bot) {
     S.result = msg;
+    setRaceResultIdle(false);
     $("#lastRt").textContent = msg.rt_ms == null ? "--" : fmtMs(msg.rt_ms);
     $("#lastGrade").textContent = msg.grade || "--";
     $("#lastGrade").className = "rt-grade " + (msg.grade || "");
@@ -221,9 +230,22 @@ function handleResult(msg) {
 
 function renderResultCard(msg) {
   if (!msg || msg.bot) return;
+  setRaceResultIdle(false);
   $("#lastRt").textContent = msg.rt_ms == null ? "--" : fmtMs(msg.rt_ms);
   $("#lastGrade").textContent = msg.grade || "--";
   $("#lastGrade").className = "rt-grade " + (msg.grade || "");
+}
+
+function setRaceResultIdle(idle) {
+  const line = $("#rtLine");
+  if (!line) return;
+  line.classList.toggle("is-idle", idle);
+  if (idle) {
+    $("#lastRt").textContent = "READY";
+    $("#lastGrade").textContent = "--";
+    $("#lastGrade").className = "rt-grade";
+    $("#lastMeta").textContent = "No reps yet. Pick an athlete and start a set.";
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -234,7 +256,7 @@ function runRaceSchedule(msg) {
   // racing, so a stale boxing toggle can never swallow a racing schedule.
   if (S.mode !== "racing") setMode("racing");
   if (msg.display === "controller") runOverlay(msg);
-  else $("#hint").textContent = "Phone is painting. Watch the athlete.";
+  else $("#hint").textContent = "Display client is painting. Watch the athlete.";
 }
 
 function runBoxSchedule(msg) {
@@ -251,7 +273,7 @@ function runBoxSchedule(msg) {
   const cue = msg.cue || {};
   $("#hint").textContent = `Cue ${boxingLabel(cue.action)} · ${boxingHandLabel(cue.hand, S.stance)}`;
   if (msg.display === "player") {
-    $("#hint").textContent = "Phone is painting the cue. The arena mirrors the state.";
+    $("#hint").textContent = "Fallback display is painting the cue. The arena mirrors the state.";
   }
   runArenaCue(msg);
 }
@@ -639,7 +661,7 @@ function renderPhase() {
 
   const hint = S.state.msg || (S.phase === "idle" ? "Ready." : "");
   if (hint) $("#hint").textContent = S.phase === "idle"
-    ? "Ready. Start a rep or hand the phone to the athlete."
+    ? "Ready. Start a rep. The laptop camera is the sensor."
     : hint;
 
   if (S.room?.status === "active" && S.room.turn_name) {
@@ -688,15 +710,18 @@ async function refreshDailyGoal() {
 }
 
 function renderRoom() {
+  const card = $("#roomCard");
   const body = $("#roomBody");
   const chip = $("#roomChip");
   const room = S.room;
   if (!room) {
+    card.classList.add("hidden");
     chip.textContent = "no room";
     chip.className = "chip";
-    body.innerHTML = `<div class="tip-body">Create a match against a seeded bot, or type a friend's 4-letter code. A second phone can join the same room and the bot drops out.</div>`;
+    body.innerHTML = "";
     return;
   }
+  card.classList.remove("hidden");
   chip.textContent = room.status;
   chip.className = "chip " + (room.status === "done" ? "warn" : "live");
 
@@ -1656,19 +1681,6 @@ $("#addPlayer").onclick = async () => {
     renderPlayers();
     toast(`${p.name} added`);
   } catch (err) { toast(err.message); }
-};
-
-$("#copyLink").onclick = async () => {
-  if (!S.playerId) return toast("Pick an athlete first");
-  const base = (S.config && S.config.public_url) || location.origin;
-  const url = `${base}/play?player=${encodeURIComponent(S.playerId)}` +
-    (S.room?.code ? `&room=${encodeURIComponent(S.room.code)}` : "");
-  try {
-    await navigator.clipboard.writeText(url);
-    toast("Player link copied");
-  } catch {
-    prompt("Copy this link", url);
-  }
 };
 
 $("#gate").oninput = (e) => { $("#gateVal").textContent = `${e.target.value} cm`; };

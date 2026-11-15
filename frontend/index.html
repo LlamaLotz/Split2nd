@@ -26,8 +26,6 @@
     </div>
     <select id="playerSelect" title="Active athlete"></select>
     <button class="btn btn-sm" id="addPlayer">+ Athlete</button>
-    <button class="btn btn-sm" id="copyLink">Player link</button>
-    <a class="btn btn-sm" href="/play" target="_blank" rel="noopener">Phone fallback ↗</a>
   </div>
 </header>
 
@@ -38,12 +36,12 @@
         <span>Live session</span>
         <span class="chip" id="phaseChip">idle</span>
       </div>
-      <div class="rt-line">
-        <span class="rt-value" id="lastRt">--</span>
+      <div class="rt-line is-idle" id="rtLine">
+        <span class="rt-value" id="lastRt">READY</span>
         <span class="rt-unit" id="rtUnit">ms</span>
         <span class="rt-grade" id="lastGrade">--</span>
       </div>
-      <div class="meta" id="lastMeta">No reps yet. Pick an athlete and press start.</div>
+      <div class="meta" id="lastMeta">No reps yet. Pick an athlete and start a set.</div>
       <button class="btn-primary" id="startBtn">START REP <kbd>SPACE</kbd></button>
       <div class="controls">
         <label>Gate
@@ -53,13 +51,12 @@
         <label>Camera
           <select id="source">
             <option value="auto">Auto</option>
-            <option value="phone">Phone</option>
             <option value="local">Laptop</option>
           </select>
         </label>
         <label><input type="checkbox" id="autoNext"> Auto-advance</label>
       </div>
-      <div class="hint" id="hint">The phone paints; the laptop scores.</div>
+      <div class="hint" id="hint">The laptop camera is the sensor; the screen is the stimulus.</div>
       <details class="dev">
         <summary>Dev / hardware checks</summary>
         <div class="dev-row">
@@ -86,7 +83,7 @@
       <ol class="board" id="board"></ol>
     </section>
 
-    <section class="card col-4 room" id="roomCard">
+    <section class="card col-4 room hidden" id="roomCard">
       <div class="card-head">Head to head <span class="chip" id="roomChip">no room</span></div>
       <div id="roomBody"></div>
       <div class="room-actions">
@@ -221,8 +218,6 @@
     <span><a href="/api/evidence" target="_blank">sources</a></span>
     <span>·</span>
     <span><a href="/cam" target="_blank">camera test</a></span>
-    <span>·</span>
-    <span id="phoneUrl"></span>
   </div>
 </main>
 

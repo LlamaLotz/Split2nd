@@ -129,11 +129,13 @@ export function renderRefs(refs = []) {
 /* ------------------------------------------------------------------ */
 export const MODE_KEY = "s2.mode";
 
-export function loadMode() {
+export function loadMode(fallback = "racing") {
   try {
-    return localStorage.getItem(MODE_KEY) === "boxing" ? "boxing" : "racing";
+    const stored = localStorage.getItem(MODE_KEY);
+    if (stored === "boxing" || stored === "racing") return stored;
+    return fallback === "boxing" ? "boxing" : "racing";
   } catch {
-    return "racing";
+    return fallback === "boxing" ? "boxing" : "racing";
   }
 }
 

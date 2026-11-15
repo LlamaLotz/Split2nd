@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import config, evidence
+from . import boxing, config, evidence
 from .drills import DrillEngine
 from .net import Client, ConnectionManager
 from .rig import make_rig
@@ -121,6 +121,7 @@ def hello_payload(client: Client) -> dict[str, Any]:
         "state": engine.snapshot(),
         "clients": manager.snapshot(),
         "evidence_version": config.EVIDENCE_VERSION,
+        "boxing": boxing.catalog(),
     }
 
 
@@ -214,6 +215,41 @@ async def get_player(player_id: str) -> dict[str, Any]:
 @app.get("/api/leaderboard")
 async def leaderboard(mode: str = "racing") -> list[dict[str, Any]]:
     return store.leaderboard(mode)
+
+
+@app.get("/api/boxing/catalog")
+async def boxing_catalog(stance: str = "orthodox") -> dict[str, Any]:
+    return boxing.catalog(stance)
+
+
+@app.get("/api/players/{player_id}/boxing")
+async def player_boxing(player_id: str) -> dict[str, Any]:
+    player = store.get_player(player_id)
+    if not player:
+        raise HTTPException(404, "unknown player")
+    return {"player": player, "stats": store.boxing_stats(player_id)}
+
+
+@app.get("/api/ghosts")
+async def ghosts(player_id: str, mode: str = "boxing",
+                 session_id: str | None = None,
+                 limit: int = 5) -> dict[str, Any]:
+    if not store.get_player(player_id):
+        raise HTTPException(404, "unknown player")
+    return {
+        "player_id": player_id,
+        "mode": mode,
+        "ghosts": store.ghosts_for(player_id, mode, session_id,
+                                   max(1, min(20, limit))),
+    }
+
+
+@app.get("/api/sessions/{session_id}/trace")
+async def session_trace(session_id: str) -> dict[str, Any]:
+    trace = store.session_trace(session_id)
+    if not trace:
+        raise HTTPException(404, "unknown session")
+    return trace
 
 
 @app.get("/api/evidence")
@@ -355,15 +391,14 @@ async def websocket_endpoint(ws: WebSocket, role: str = "controller",
                     continue
                 res = await engine.start(pid, msg.get("room") or client.room,
                                          source=msg.get("source"),
-                                         auto=(bool(msg["auto"]) if "auto" in msg else engine.auto))
+                                         auto=(bool(msg["auto"]) if "auto" in msg else engine.auto),
+                                         mode=msg.get("mode"),
+                                         stance=msg.get("stance"),
+                                         ghost_session_id=msg.get("ghost_session_id"))
                 if not res.get("ok"):
                     await ws.send_json({"type": "fault", "message": res.get("error", "cannot start")})
             elif cmd == "stop":
-                engine.phase = "idle"
-                engine.msg = "Stopped"
-                rig.disarm()
-                rig.led(None)
-                await engine.broadcast_state()
+                await engine.stop_drill()
             elif cmd == "select":
                 engine.select(msg.get("player_id"))
                 await engine.broadcast_state()

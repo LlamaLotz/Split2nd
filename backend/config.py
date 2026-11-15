@@ -28,6 +28,13 @@ RIG_MODE = os.getenv("RIG", "auto").strip().lower()
 RIG_PORT = os.getenv("RIG_PORT", "").strip()
 
 CAMERA_INDEX = int(os.getenv("CAMERA_INDEX", "0"))
+
+# MediaPipe Tasks Pose Landmarker (lite).  The model is checked into models/
+# so the demo does not depend on a first-use download.
+POSE_MODEL_PATH = Path(os.getenv(
+    "POSE_MODEL",
+    str(ROOT / "models" / "pose_landmarker_lite.task"),
+))
 CAMERA_WIDTH = int(os.getenv("CAMERA_WIDTH", "640"))
 CAMERA_HEIGHT = int(os.getenv("CAMERA_HEIGHT", "480"))
 CAMERA_FPS = int(os.getenv("CAMERA_FPS", "30"))
@@ -42,12 +49,18 @@ SIMPLE_GREEN_MS = int(os.getenv("GREEN_MS", "250"))
 SIMPLE_YELLOW_MS = int(os.getenv("YELLOW_MS", "350"))
 FALSE_START_MS = 100
 
-REP_WINDOW_S = 1.5          # response window
+REP_WINDOW_S = 1.5          # racing response window
 BASELINE_S = 0.4            # pre-stimulus baseline
 HOLD_STILL_S = 0.35         # required stillness before arming
 ARM_TIMEOUT_S = 4.0         # give up if the athlete keeps fidgeting
 PAINT_TIMEOUT_S = 1.5       # extra grace on top of the scheduled delay
 RESULT_HOLD_S = 2.2         # result card dwell before idle / next rep
+
+# Boxing: a longer window because a hook/uppercut is a gross action, and a
+# shorter pre-cue delay so a 10-cue set is usable in a demo.
+BOXING_WINDOW_MS = int(os.getenv("BOXING_WINDOW_MS", "1400"))
+BOXING_DELAY_MIN_MS = int(os.getenv("BOXING_DELAY_MIN_MS", "500"))
+BOXING_DELAY_MAX_MS = int(os.getenv("BOXING_DELAY_MAX_MS", "800"))
 
 # F1-style start sequence. The server sends the full delay to lights-out.
 LIGHTS_COUNT = 5

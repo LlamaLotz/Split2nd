@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc" style="color:#F1F5F0;--badge-bg:#111513;--badge-gold:#FFC857;--badge-lock:#3DFFA2">
+  <title id="title">Split2nd chest badge</title>
+  <desc id="desc">A locked treasure chest badge for a personal best or milestone reward.</desc>
+  <style>
+    .rim { fill: var(--badge-bg, #111513); stroke: currentColor; stroke-width: 3; }
+    .gold { fill: var(--badge-gold, #FFC857); stroke: #080A09; stroke-width: 3; stroke-linejoin: round; }
+    .box { fill: var(--badge-bg, #111513); stroke: var(--badge-gold, #FFC857); stroke-width: 4; stroke-linejoin: round; }
+    .lock { fill: var(--badge-lock, #3DFFA2); stroke: #080A09; stroke-width: 2.5; }
+    .spark { fill: var(--badge-gold, #FFC857); }
+  </style>
+  <circle class="rim" cx="64" cy="64" r="54"/>
+  <path class="gold" d="M27 51 C27 45 31 41 37 41 H91 C97 41 101 45 101 51 V62 H27 Z"/>
+  <rect class="box" x="31" y="62" width="66" height="34" rx="7"/>
+  <path class="gold" d="M39 62 V96 M89 62 V96"/>
+  <rect class="gold" x="56" y="58" width="16" height="18" rx="4"/>
+  <circle class="lock" cx="64" cy="67" r="4"/>
+  <path class="spark" d="M23 31 L27 35 L23 39 L19 35 Z"/>
+  <path class="spark" d="M105 88 L109 92 L105 96 L101 92 Z"/>
+</svg>

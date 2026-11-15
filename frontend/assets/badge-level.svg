@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc" style="color:#F1F5F0;--badge-bg:#111513;--badge-level:#3DFFA2">
+  <title id="title">Split2nd level badge</title>
+  <desc id="desc">A green shield with upward chevrons for a level-up.</desc>
+  <style>
+    .rim { fill: var(--badge-bg, #111513); stroke: currentColor; stroke-width: 3; }
+    .shield { fill: var(--badge-bg, #111513); stroke: var(--badge-level, #3DFFA2); stroke-width: 4; stroke-linejoin: round; }
+    .chev { fill: none; stroke: var(--badge-level, #3DFFA2); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; }
+    .glint { fill: currentColor; opacity: .7; }
+  </style>
+  <circle class="rim" cx="64" cy="64" r="54"/>
+  <path class="shield" d="M64 18 L100 31 V62 C100 86 85 101 64 110 C43 101 28 86 28 62 V31 Z"/>
+  <path class="chev" d="M44 63 L64 45 L84 63"/>
+  <path class="chev" d="M44 82 L64 64 L84 82"/>
+  <circle class="glint" cx="44" cy="38" r="3"/>
+</svg>

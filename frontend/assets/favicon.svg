@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Split2nd</title>
+  <style>
+    .tile { fill: #3DFFA2; }
+    .mark { fill: none; stroke: #080A09; stroke-width: 5.5; stroke-linecap: round; stroke-linejoin: round; }
+  </style>
+  <rect class="tile" x="2" y="2" width="60" height="60" rx="15"/>
+  <path class="mark" d="M27 20 C21 20 17 23 17 28 C17 32.5 21 34 27 35 C33 36 36 38 36 42 C36 47 31 49 25 48"/>
+  <path class="mark" d="M39 21 H50 C53 21 55 23.5 55 27 C55 30.5 52 33.5 47 37 L39 44 H55"/>
+</svg>

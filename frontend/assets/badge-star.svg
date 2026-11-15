@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc" style="color:#F1F5F0;--badge-bg:#111513;--badge-star:#6EE7FF">
+  <title id="title">Split2nd star badge</title>
+  <desc id="desc">A star medal for a standout rep.</desc>
+  <style>
+    .rim { fill: var(--badge-bg, #111513); stroke: currentColor; stroke-width: 3; }
+    .track { fill: none; stroke: currentColor; stroke-width: 2; opacity: .28; }
+    .star { fill: var(--badge-star, #6EE7FF); stroke: #080A09; stroke-width: 3; stroke-linejoin: round; }
+    .core { fill: var(--badge-bg, #111513); opacity: .35; }
+    .tick { stroke: currentColor; stroke-width: 3; stroke-linecap: round; opacity: .55; }
+  </style>
+  <circle class="rim" cx="64" cy="64" r="54"/>
+  <circle class="track" cx="64" cy="64" r="45" stroke-dasharray="2 8"/>
+  <path class="star" d="M64 20 L73.4 50.8 L105 52.9 L79.9 72.6 L88.9 103.6 L64 85 L39.1 103.6 L48.1 72.6 L23 52.9 L54.6 50.8 Z"/>
+  <path class="core" d="M64 44 L69 60 L86 61 L72.5 71 L77.5 87 L64 77.5 L50.5 87 L55.5 71 L42 61 L59 60 Z"/>
+  <path class="tick" d="M64 106 V112 M40 102 L37 107 M88 102 L91 107"/>
+</svg>

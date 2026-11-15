@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc" style="color:#F1F5F0;--mascot-body:#98A39A;--mascot-ink:#080A09;--mascot-glow:#6EE7FF;--mascot-tear:#6EE7FF">
+  <title id="title">Split2nd glove mascot, sad</title>
+  <desc id="desc">The Split2nd boxing glove mascot with droopy eyes and a frown after a slow or false start.</desc>
+  <defs>
+    <filter id="soft-sad" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="12"/>
+    </filter>
+  </defs>
+  <style>
+    .glow { fill: var(--mascot-glow, #6EE7FF); opacity: .16; filter: url(#soft-sad); }
+    .body { fill: var(--mascot-body, #98A39A); stroke: var(--mascot-ink, #080A09); stroke-width: 6; stroke-linejoin: round; }
+    .lid { stroke-width: 5; }
+    .ink { fill: var(--mascot-ink, #080A09); }
+    .eye { fill: currentColor; stroke: var(--mascot-ink, #080A09); stroke-width: 5; }
+    .pupil { fill: var(--mascot-ink, #080A09); }
+    .glint { fill: currentColor; }
+    .line { fill: none; stroke: var(--mascot-ink, #080A09); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; }
+    .seam { fill: none; stroke: var(--mascot-ink, #080A09); stroke-width: 5; stroke-linecap: round; opacity: .35; }
+    .mark { fill: none; stroke: currentColor; stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; }
+    .tear { fill: var(--mascot-tear, #6EE7FF); stroke: var(--mascot-ink, #080A09); stroke-width: 4; }
+  </style>
+
+  <ellipse class="glow" cx="128" cy="126" rx="106" ry="104"/>
+
+  <!-- thumb + fist -->
+  <path class="body" d="M84 178 C72 162 68 140 72 118 C76 88 92 60 120 46 C148 32 180 38 198 60 C214 80 216 108 208 132 C199 158 180 174 156 180 Z"/>
+  <path class="body" d="M78 128 C62 126 50 136 50 151 C50 166 62 177 78 176 C89 176 97 170 101 160 L101 139 C95 132 87 128 78 128 Z"/>
+  <path class="seam" d="M100 139 C96 150 95 162 98 174"/>
+  <path class="seam" d="M180 65 C192 77 198 91 200 106"/>
+  <path class="seam" d="M168 58 C181 70 189 85 192 102"/>
+
+  <!-- sad face -->
+  <path class="line" d="M103 82 L138 75"/>
+  <path class="line" d="M190 82 L155 75"/>
+  <ellipse class="eye" cx="122" cy="97" rx="17" ry="19"/>
+  <circle class="pupil" cx="125" cy="101" r="8"/>
+  <circle class="glint" cx="130" cy="95" r="3"/>
+  <path class="body lid" d="M102 86 Q122 76 142 88 L142 96 Q122 86 102 98 Z"/>
+  <ellipse class="eye" cx="170" cy="94" rx="17" ry="19"/>
+  <circle class="pupil" cx="173" cy="98" r="8"/>
+  <circle class="glint" cx="178" cy="92" r="3"/>
+  <path class="body lid" d="M150 85 Q170 73 190 85 L190 93 Q170 81 150 95 Z"/>
+  <path class="line" d="M132 143 Q150 128 168 142"/>
+  <path class="tear" d="M201 102 C201 102 191 118 191 126 C191 134 197 139 204 139 C211 139 216 134 216 127 C216 118 205 102 201 102 Z"/>
+
+  <!-- cuff + S2 -->
+  <rect class="ink" x="80" y="172" width="96" height="56" rx="16"/>
+  <path class="mark" d="M109 192 C102 192 98 195 98 200 C98 205 103 207 109 208 C115 209 117 212 117 216 C117 221 112 223 105 222"/>
+  <path class="mark" d="M124 193 H141 C145 193 147 196 147 200 C147 204 143 208 137 212 L124 222 H147"/>
+</svg>

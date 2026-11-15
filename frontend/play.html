@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#040605">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Split2nd · Player</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="player-body">
+<div class="banner hidden" id="banner"></div>
+
+<section class="gate" id="gate">
+  <div class="mark">S2</div>
+  <h1>Split2nd</h1>
+  <p>Your phone is the sensor and the scoreboard. Prop it up at eye level, step back so your upper body is in frame, then race the lights.</p>
+  <button class="btn-primary" id="startCam">Enable camera &amp; begin</button>
+  <div class="tiny" id="gateHint">Camera needs HTTPS. Keep this page open; the screen will stay awake.</div>
+</section>
+
+<div class="player-shell hidden" id="app">
+  <div class="p-hud">
+    <span class="who" id="hudName">Athlete</span>
+    <span class="pill">LVL <b id="hudLevel">1</b></span>
+    <span class="pill"><span id="hudStreak">0</span> DAY STREAK</span>
+    <span class="spacer"></span>
+    <span class="pill" id="roomPill">SOLO</span>
+    <span class="pill"><i class="dot" id="connDot"></i><span id="connText">offline</span></span>
+  </div>
+
+  <div class="p-stage">
+    <div class="p-lights" id="pLights">
+      <div class="light"></div><div class="light"></div><div class="light"></div>
+      <div class="light"></div><div class="light"></div>
+    </div>
+
+    <div class="p-status" id="pStatus">WAITING FOR CONTROLLER</div>
+
+    <div class="p-rt hidden" id="pRt">--<small>ms</small></div>
+    <div class="p-grade hidden" id="pGrade">--</div>
+    <div class="p-result-meta hidden" id="pMeta"></div>
+    <div class="xp-row hidden" id="pXp"></div>
+    <div class="ghost hidden" id="pGhost">
+      <div class="bar"><i id="pGhostMe"></i><u id="pGhostMark"></u></div>
+      <div class="labels"><span id="pGhostLabel">you</span><span id="pGhostTarget">ghost -- ms</span></div>
+    </div>
+    <div class="p-tip hidden" id="pTip"></div>
+    <div class="p-actions hidden" id="pActions">
+      <button class="btn" id="nextBtn">NEXT REP</button>
+      <button class="btn btn-ghost" id="againBtn">RESET</button>
+    </div>
+
+    <div class="p-mini-board" id="pBoard"></div>
+  </div>
+
+  <div class="p-bottom">
+    <div class="p-cam" id="pCam">
+      <video id="video" playsinline muted autoplay></video>
+      <i class="rec" id="recDot"></i>
+    </div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--dim);line-height:1.5" id="camStats">
+      640p · 0 fps · 0 frames
+    </div>
+    <div class="p-actions" style="margin-left:auto">
+      <button class="btn btn-sm btn-ghost" id="fullBtn">FULLSCREEN</button>
+    </div>
+  </div>
+</div>
+
+<canvas id="canvas" style="display:none"></canvas>
+<div id="toast"></div>
+<script type="module" src="/static/play.js"></script>
+</body>
+</html>

@@ -1,2 +1,22 @@
-reflex-trainer-master-spec.md
-reflex-trainer-master-spec.md:Zone.Identifier
+# runtime
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.log
+
+# app data (players/reps live on the demo machine, not in git)
+data/*.json
+data/*.json.tmp
+data/*.jpg
+data/*.npy
+!data/.gitkeep
+
+# local TLS material
+certs/
+
+# tooling
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+Thumbs.db

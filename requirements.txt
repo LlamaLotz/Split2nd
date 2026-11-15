@@ -1,0 +1,15 @@
+# Core server
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pyserial>=3.5
+
+# Vision. MediaPipe 0.10.21 is the last line with the bundled
+# `mp.solutions.pose` API + pose_landmark_lite.tflite inside the wheel,
+# so it works offline. It pins numpy<2 and brings opencv-contrib-python,
+# so do NOT add opencv-python separately.
+numpy==1.26.4
+opencv-contrib-python==4.11.0.86
+mediapipe==0.10.21
+
+# Dev / tests
+pytest>=8.0

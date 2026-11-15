@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0c0b">
+<title>Split2nd · Reflex Lab</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="mark">S2</span>SPLIT<em>2</em>ND <small>reflex lab</small></div>
+  <div class="pills" id="health">
+    <span class="pill"><i class="dot" id="dotRig"></i>RIG <b id="rigText">--</b></span>
+    <span class="pill"><i class="dot" id="dotVision"></i>VISION <b id="visionText">--</b></span>
+    <span class="pill"><i class="dot" id="dotClients"></i><b id="clientText">0</b> CLIENTS</span>
+  </div>
+  <div class="top-actions">
+    <select id="playerSelect" title="Active athlete"></select>
+    <button class="btn btn-sm" id="addPlayer">+ Athlete</button>
+    <button class="btn btn-sm" id="copyLink">Player link</button>
+    <a class="btn btn-sm" href="/play" target="_blank" rel="noopener">Phone view ↗</a>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="grid">
+    <section class="card col-5 drill">
+      <div class="card-head">
+        <span>Live session</span>
+        <span class="chip" id="phaseChip">idle</span>
+      </div>
+      <div class="rt-line">
+        <span class="rt-value" id="lastRt">--</span>
+        <span class="rt-unit">ms</span>
+        <span class="rt-grade" id="lastGrade">--</span>
+      </div>
+      <div class="meta" id="lastMeta">No reps yet. Pick an athlete and press start.</div>
+      <button class="btn-primary" id="startBtn">START REP <kbd>SPACE</kbd></button>
+      <div class="controls">
+        <label>Gate
+          <input type="range" id="gate" min="10" max="100" step="1" value="30">
+          <span id="gateVal">30 cm</span>
+        </label>
+        <label>Camera
+          <select id="source">
+            <option value="auto">Auto</option>
+            <option value="phone">Phone</option>
+            <option value="local">Laptop</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="autoNext"> Auto-advance</label>
+      </div>
+      <div class="hint" id="hint">The phone paints; the laptop scores.</div>
+      <details class="dev">
+        <summary>Dev / hardware checks</summary>
+        <div class="dev-row">
+          <button class="btn btn-sm" data-sim="hit">Sim HIT</button>
+          <button class="btn btn-sm" data-sim="btn">Sim BTN</button>
+          <button class="btn btn-sm" data-sim="enc">Sim ENC</button>
+          <button class="btn btn-sm" id="ledTest">LED cycle</button>
+          <button class="btn btn-sm" id="seedBtn">Seed demo data</button>
+        </div>
+      </details>
+    </section>
+
+    <section class="card col-4 preview">
+      <div class="card-head">Camera <span class="chip" id="camChip">no signal</span></div>
+      <div class="video-wrap">
+        <img id="video" src="/video" alt="Live camera preview">
+        <div class="nosignal" id="nosignal">WAITING FOR FRAMES</div>
+      </div>
+      <div class="cam-meta" id="camMeta">--</div>
+    </section>
+
+    <section class="card col-3 leaderboard">
+      <div class="card-head">Leaderboard <span class="chip">racing</span></div>
+      <ol class="board" id="board"></ol>
+    </section>
+
+    <section class="card col-4 room">
+      <div class="card-head">Head to head <span class="chip" id="roomChip">no room</span></div>
+      <div id="roomBody"></div>
+      <div class="room-actions">
+        <button class="btn btn-sm" id="createRoom">Create vs BOT</button>
+        <input type="text" id="joinCode" maxlength="4" placeholder="CODE" aria-label="Room code">
+        <button class="btn btn-sm" id="joinRoom">Join</button>
+      </div>
+    </section>
+
+    <section class="card col-5 history">
+      <div class="card-head">Rep log <span class="chip" id="repChip">0 reps</span></div>
+      <div class="table-wrap">
+        <table class="reps">
+          <thead><tr><th>Time</th><th>Athlete</th><th>RT</th><th>Grade</th><th>Z</th><th>XP</th></tr></thead>
+          <tbody id="repBody"><tr><td colspan="6">No reps yet.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card col-3 tip">
+      <div class="card-head">Evidence</div>
+      <div id="tipBody">
+        <div class="tip-headline">Compare you to you</div>
+        <div class="tip-body">Every tip in this panel is tied to a published source. Start a rep and the engine picks advice from your own numbers.</div>
+        <div class="disclaimer">Single-athlete data. Device reliability is moderate; absolute values include display and camera latency.</div>
+      </div>
+    </section>
+  </div>
+
+  <div class="foot">
+    <span>SPLIT2ND v<span id="version">0.1.0</span></span>
+    <span>·</span>
+    <span>webcam onset &amp; ultrasonic Z share one t0</span>
+    <span>·</span>
+    <span><a href="/api/evidence" target="_blank">sources</a></span>
+    <span>·</span>
+    <span><a href="/cam" target="_blank">camera test</a></span>
+    <span>·</span>
+    <span id="phoneUrl"></span>
+  </div>
+</main>
+
+<div class="stim-overlay hidden" id="stimOverlay">
+  <div class="overlay-label" id="overlayLabel">LIGHTS OUT</div>
+  <div class="lights" id="overlayLights">
+    <div class="light"></div><div class="light"></div><div class="light"></div>
+    <div class="light"></div><div class="light"></div>
+  </div>
+  <div class="go-text" id="goText">GO</div>
+</div>
+
+<div id="toast"></div>
+<script type="module" src="/static/controller.js"></script>
+</body>
+</html>

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0c0b">
+<title>Split2nd · Camera test</title>
+<link rel="stylesheet" href="/static/app.css">
+<style>
+  .cam-shell { max-width: 760px; margin: 0 auto; padding: 22px; display: flex; flex-direction: column; gap: 14px; }
+  .cam-shell video { width: 100%; border-radius: 12px; border: 1px solid var(--line); background: #000; transform: scaleX(-1); }
+  .check { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line-soft); font-family: var(--mono); font-size: 11px; }
+  .check b { color: var(--text); font-weight: 600; }
+  .log { font-family: var(--mono); font-size: 10px; color: var(--dim); max-height: 180px; overflow: auto; line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="cam-shell">
+  <div class="brand"><span class="mark">S2</span>CAMERA TEST <small>gate check</small></div>
+
+  <div class="card">
+    <div class="card-head">Environment</div>
+    <div class="check"><span>URL</span><b id="cUrl">--</b></div>
+    <div class="check"><span>Secure context</span><b id="cSecure">--</b></div>
+    <div class="check"><span>getUserMedia</span><b id="cGum">--</b></div>
+    <div class="check"><span>WebSocket</span><b id="cWs">--</b></div>
+    <div class="check"><span>Server / rig / vision</span><b id="cHealth">--</b></div>
+    <div class="check"><span>Frames sent</span><b id="cFrames">0</b></div>
+    <div class="check"><span>Last frame</span><b id="cSize">--</b></div>
+    <div class="check"><span>FPS</span><b id="cFps">0</b></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">Camera</div>
+    <video id="video" playsinline muted autoplay></video>
+    <div class="room-actions">
+      <button class="btn btn-primary" id="startBtn" style="width:auto">START CAMERA</button>
+      <a class="btn" href="/play">Player view</a>
+      <a class="btn" href="/">Controller</a>
+    </div>
+    <div class="hint" id="hint">Tap start. If iOS blocks it, this page is not trusted yet.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">Messages</div>
+    <div class="log" id="log">No messages yet.</div>
+  </div>
+
+  <div class="foot">
+    <span>Install the CA: <a href="/ca.crt">download ca.crt</a> → Settings → Profile Downloaded → Install → Certificate Trust Settings → enable.</span>
+  </div>
+</div>
+<canvas id="canvas" style="display:none"></canvas>
+<div id="toast"></div>
+<script type="module" src="/static/cam.js"></script>
+</body>
+</html>

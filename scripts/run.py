@@ -36,7 +36,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default=os.getenv("HOST", "0.0.0.0"))
     ap.add_argument("--port", type=int, default=int(os.getenv("PORT", "8443")))
-    ap.add_argument("--no-tls", action="store_true", help="plain HTTP (the phone camera will be blocked)")
+    ap.add_argument("--no-tls", action="store_true",
+                    help="plain HTTP for the laptop-only rig (no phone needed)")
     ap.add_argument("--reload", action="store_true", help="dev only; resets the Arduino on save")
     ap.add_argument("--vision", default=os.getenv("VISION", "auto"),
                     choices=["auto", "local", "remote", "fake"])
@@ -44,7 +45,7 @@ def main() -> None:
                     choices=["auto", "serial", "fake"])
     ap.add_argument("--rig-port", default=os.getenv("RIG_PORT", ""))
     ap.add_argument("--camera", type=int, default=int(os.getenv("CAMERA_INDEX", "0")))
-    ap.add_argument("--public-url", default="", help="override the URL printed for phones")
+    ap.add_argument("--public-url", default="", help="override the printed controller URL")
     args = ap.parse_args()
 
     os.environ["VISION"] = args.vision
@@ -63,20 +64,18 @@ def main() -> None:
                   else f"{scheme}://{ip}:{port}")
     os.environ["PUBLIC_URL"] = public_url
 
-    print("\nSplit2nd")
+    print("\nSplit2nd (laptop rig)")
     print(f"  controller : {public_url}/")
-    print(f"  phone      : {public_url}/play")
-    print(f"  camera test: {public_url}/cam")
     print(f"  health     : {public_url}/api/health")
     print(f"  vision={args.vision} rig={args.rig}\n")
 
     if not use_tls:
         if not args.no_tls:
             print("!! certs/server.crt missing - starting plain HTTP.")
-            print("!! iOS will block getUserMedia without HTTPS.")
-            print("!! run: python scripts/make_certs.py\n")
+            print("!! run with --no-tls for the laptop-only rig, or")
+            print("!! python scripts/make_certs.py for the legacy phone path.\n")
         else:
-            print("plain HTTP: laptop only; the phone camera will not start.\n")
+            print("plain HTTP: laptop webcam + controller display. No phone needed.\n")
 
     import uvicorn
 

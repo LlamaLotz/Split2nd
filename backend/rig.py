@@ -3,9 +3,15 @@
 The Uno is a CDC-ACM USB serial device on the ThinkPad's USB-A port.
 Safari on iOS cannot see it at all, which is why the laptop is the hub.
 
-Protocol (115200, newline terminated ASCII):
-  PC -> Uno : PING, GATE <cm>, STIM, DISARM, LED G|Y|R|0, SHOW <ms> <G|Y|R|F> <best>
-  Uno -> PC : READY, PONG, ENC <+1/-1>, BTN, HIT <ms> <cm>
+Protocol (115200, newline terminated ASCII), matching reflex_fw.ino:
+  PC -> Uno : PING, VER, DEMO 0|1, GATE <cm>, DIST, STIM, DISARM,
+              LED G|Y|R|0, SHOW <ms> <G|Y|R|F> <best>
+  Uno -> PC : READY, VER reflex-fw 1.0, PONG, OK, ERR ..., I2C <addr>,
+              DEMO <cm>, DIST <cm>, HIT <ms> <cm>, TIMEOUT
+
+The real firmware has no encoder and no buttons.  ENC/BTN parsing is kept
+harmless for old sketches, but nothing in the app depends on them.
+After READY the app sends DEMO 0 so the laptop owns the unit.
 """
 from __future__ import annotations
 
@@ -71,6 +77,10 @@ class BaseRig:
         self.handshake = False
         self.last_error: str | None = None
         self.last_event: str | None = None
+        self.last_distance_cm: int | None = None
+        self.firmware: str | None = None
+        self.i2c: str | None = None
+        self.demo_on = False
         self.sent: deque[str] = deque(maxlen=60)
         self.raw_log: deque[dict[str, Any]] = deque(maxlen=80)
         self._lock = threading.RLock()
@@ -94,12 +104,26 @@ class BaseRig:
             "port": None,
             "last_error": self.last_error,
             "last_event": self.last_event,
+            "last_distance_cm": self.last_distance_cm,
+            "firmware": self.firmware,
+            "i2c": self.i2c,
+            "demo_on": self.demo_on,
             "sent": list(self.sent)[-10:],
         }
 
     # -- helpers -------------------------------------------------------
     def ping(self) -> None:
         self.send("PING")
+
+    def ver(self) -> None:
+        self.send("VER")
+
+    def dist(self) -> None:
+        self.send("DIST")
+
+    def demo(self, on: bool) -> None:
+        self.demo_on = bool(on)
+        self.send(f"DEMO {1 if on else 0}")
 
     def stim(self) -> None:
         self.send("STIM")
@@ -112,13 +136,24 @@ class BaseRig:
 
     def led(self, value: str | None) -> None:
         value = (value or "0")[:1].upper()
+        if value == "M":          # boxing miss -> red
+            value = "R"
         if value not in ("G", "Y", "R", "0"):
             value = "0"
         self.send(f"LED {value}")
 
     def show(self, rt_ms: int, grade: str, best_ms: int | None) -> None:
-        best = int(best_ms or 0)
-        self.send(f"SHOW {int(rt_ms)} {grade[:1].upper()} {best}")
+        # The firmware only accepts G/Y/R/F on the OLED.  A boxing miss is
+        # grade M in the app; map it to R rather than letting the firmware
+        # reject the line with ERR ARGS.
+        grade = (grade or "R")[:1].upper()
+        if grade == "M":
+            grade = "R"
+        if grade not in ("G", "Y", "R", "F"):
+            grade = "R"
+        ms = max(0, min(9999, int(rt_ms)))
+        best = max(0, min(9999, int(best_ms or 0)))
+        self.send(f"SHOW {ms} {grade} {best}")
 
     def _emit(self, raw: str, kind: str | None = None,
               args: list[Any] | None = None) -> None:
@@ -131,6 +166,34 @@ class BaseRig:
             head = parts[0].upper()
             if head == "HIT" and len(parts) >= 3:
                 kind, args = "HIT", [int(parts[1]), int(parts[2])]
+            elif head == "DEMO" and len(parts) >= 2:
+                kind = "DEMO"
+                try:
+                    args = [int(parts[1])]
+                    self.last_distance_cm = args[0]
+                except ValueError:
+                    kind, args = "LINE", [raw]
+            elif head == "DIST" and len(parts) >= 2:
+                kind = "DIST"
+                try:
+                    args = [int(parts[1])]
+                    self.last_distance_cm = args[0]
+                except ValueError:
+                    kind, args = "LINE", [raw]
+            elif head == "VER" and len(parts) >= 2:
+                kind = "VER"
+                args = parts[1:]
+                self.firmware = " ".join(parts[1:])
+            elif head == "I2C" and len(parts) >= 2:
+                kind, args = "I2C", [parts[1]]
+                self.i2c = parts[1]
+            elif head == "ERR":
+                kind, args = "ERR", [raw[3:].strip() or "ERR"]
+                self.last_error = raw
+            elif head == "TIMEOUT":
+                kind = "TIMEOUT"
+            elif head == "OK":
+                kind = "OK"
             elif head == "ENC" and len(parts) >= 2:
                 kind, args = "ENC", [int(parts[1])]
             elif head == "BTN":
@@ -146,6 +209,12 @@ class BaseRig:
         self.last_event = raw
         self.raw_log.append(event)
         self.events.put(event)
+
+        if kind == "READY":
+            self.ready = True
+            self.connected = True
+            # The firmware boots into DEMO.  The app must own the unit.
+            self.demo(False)
 
 
 class FakeRig(BaseRig):
@@ -198,6 +267,14 @@ class FakeRig(BaseRig):
             self._emit("READY", "READY")
         elif kind == "pong":
             self._emit("PONG", "PONG")
+        elif kind == "dist":
+            self._emit("DIST 42")
+        elif kind == "timeout":
+            self._emit("TIMEOUT")
+        elif kind == "err":
+            self._emit("ERR ARGS")
+        elif kind == "ver":
+            self._emit("VER reflex-fw 1.0")
 
     def status(self) -> dict[str, Any]:
         out = super().status()

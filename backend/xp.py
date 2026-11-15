@@ -40,6 +40,49 @@ def xp_for(rt_ms: int | None, grade: str, new_pb: bool, streak: int) -> dict:
     }
 
 
+def xp_for_boxing(correct: bool, reaction_ms: int | None, combo: int,
+                  accuracy: float) -> dict:
+    """Explainable XP breakdown for one boxing cue.
+
+    Base 8.  Speed adds up to 12 (700 ms -> 0, 340 ms -> 12).  The combo
+    multiplier is ``1 + 0.1 * combo`` capped at 2x.  Session accuracy adds
+    0-30.  A wrong action or a miss scores nothing, but still consumes a cue.
+
+    The keys mirror :func:`xp_for` so a result card can render either mode:
+    base, speed, combo, accuracy, total.  `combo` is the bonus points from
+    the multiplier, not the multiplier itself.
+    """
+    accuracy = max(0.0, min(1.0, float(accuracy or 0.0)))
+    if not correct:
+        return {
+            "base": 0,
+            "speed": 0,
+            "combo": 0,
+            "accuracy": 0,
+            "multiplier": 1.0,
+            "total": 0,
+            "reason": "wrong or miss",
+        }
+
+    base = 8
+    if reaction_ms is None:
+        speed = 0
+    else:
+        speed = max(0, min(12, int(round((700.0 - float(reaction_ms)) / 30.0))))
+    multiplier = min(2.0, 1.0 + 0.1 * max(0, int(combo)))
+    combo_points = int(round((base + speed) * (multiplier - 1.0)))
+    accuracy_points = int(round(30.0 * accuracy))
+    return {
+        "base": base,
+        "speed": speed,
+        "combo": combo_points,
+        "accuracy": accuracy_points,
+        "multiplier": round(multiplier, 2),
+        "total": base + speed + combo_points + accuracy_points,
+        "reason": "clean cue",
+    }
+
+
 def level_for(xp: int) -> dict:
     level = 1
     for i, step in enumerate(LEVEL_STEPS, start=1):

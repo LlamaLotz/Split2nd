@@ -6,10 +6,15 @@ Three interchangeable sources, one sample stream:
   remote  JPEG frames posted by a phone over the websocket
   fake    synthetic speed samples, so the whole drill loop runs with no camera
 
-Timestamps are always taken at capture time. MediaPipe is optional: if it
-cannot load, the engine falls back to frame-difference motion energy and the
-onset detector still works (direction classification is not needed for the
-racing mode).
+Timestamps are always taken at capture time.  The primary pose path is the
+MediaPipe Tasks **Pose Landmarker** (`models/pose_landmarker_lite.task`,
+VIDEO mode).  A legacy `mp.solutions.pose` adapter is kept only as a fallback
+when Tasks creation fails, and frame-difference motion energy is the final
+fallback.  The racing path works without pose; the boxing mode needs the
+landmark arrays.
+
+MediaPipe is optional at import time.  Unit tests use the synthetic landmark
+generator and never require the model.
 """
 from __future__ import annotations
 
@@ -43,6 +48,24 @@ except Exception:  # pragma: no cover - import guard
     mp = None
     MP_OK = False
 
+try:
+    from mediapipe.tasks import python as mp_python
+    from mediapipe.tasks.python import vision as mp_vision
+
+    MP_TASKS_OK = True
+except Exception:  # pragma: no cover - import guard
+    mp_python = None
+    mp_vision = None
+    MP_TASKS_OK = False
+
+try:  # pragma: no cover - the legacy adapter is exercised only at runtime
+    from mediapipe.python.solutions import pose as mp_legacy_pose
+
+    MP_LEGACY_OK = True
+except Exception:  # pragma: no cover - import guard
+    mp_legacy_pose = None
+    MP_LEGACY_OK = False
+
 
 SELECTED = (0, 11, 12, 15, 16, 23, 24)  # nose, shoulders, wrists, hips
 
@@ -55,6 +78,10 @@ class Sample:
     source: str       # local | remote | fake
     clock: str
     floor: float
+    # Pose payload (all 33 landmarks).  The racing path ignores these; the
+    # boxing classifier needs them.  None when the motion fallback is active.
+    landmarks: list | None = None   # image: (x, y, z, visibility)
+    world: list | None = None       # world: (x, y, z) in metres
 
 
 class VisionEngine:
@@ -67,6 +94,11 @@ class VisionEngine:
         self.local_error: str | None = None
         self.pose_ok = MP_OK and CV2_OK
         self.pose_error: str | None = None
+        if self.mode == "fake":
+            self.pose_backend: str | None = "fake"
+        else:
+            self.pose_backend = "pending" if self.pose_ok else "motion"
+        self.pose_model = str(config.POSE_MODEL_PATH)
 
         self.remote_clock: str | None = None
         self.remote_seen_at = 0.0
@@ -84,7 +116,10 @@ class VisionEngine:
         self._latest_jpeg: bytes | None = None
         self._last_preview_t = 0.0
         self._prev_gray: dict[str, Any] = {}
-        self._pose = None
+        self._pose = None          # legacy fallback
+        self._landmarker = None    # Tasks PoseLandmarker
+        self._pose_ready = False
+        self._video_ts_ms = 0
         self._fake_onset_at: float | None = None
         self._fake_started = False
         self._floors: dict[str, float] = {}
@@ -112,6 +147,8 @@ class VisionEngine:
         if self._fake_started or self._stop.is_set():
             return
         self._fake_started = True
+        if self.pose_backend in (None, "pending"):
+            self.pose_backend = "fake"
         fake = threading.Thread(target=self._fake_loop, name="vision-fake", daemon=True)
         fake.start()
         self._threads.append(fake)
@@ -121,6 +158,18 @@ class VisionEngine:
         for t in self._threads:
             t.join(timeout=1.0)
         self._threads.clear()
+        if self._landmarker is not None:
+            try:
+                self._landmarker.close()
+            except Exception:
+                pass
+            self._landmarker = None
+        if self._pose is not None:
+            try:
+                self._pose.close()
+            except Exception:
+                pass
+            self._pose = None
 
     # ------------------------------------------------------------------
     # inputs
@@ -138,6 +187,34 @@ class VisionEngine:
 
     def simulate_onset(self, delay_s: float = 0.24) -> None:
         self._fake_onset_at = time.perf_counter() + max(0.02, delay_s)
+
+    def simulate_boxing(self, cue_id: str, t0: float,
+                        stance: str = "orthodox") -> int:
+        """Append synthetic landmark frames for one boxing cue.
+
+        The frames cover 350 ms of pre-stimulus rest plus 1.2 s of action at
+        30 fps, so a fake boxing drill has the same window shape as a real
+        one.  Timestamps are in the backend clock, which is what the fake
+        source uses.  Returns the number of frames appended.
+        """
+        from . import boxing  # local import keeps module import order simple
+
+        frames = boxing.synthetic_window(cue_id, stance=stance, t0=float(t0))
+        now = time.perf_counter()
+        with self.lock:
+            for frame in frames:
+                self.samples.append(Sample(
+                    t=float(frame["t"]),
+                    t_recv=now,
+                    speed=0.02,  # deliberately below any racing onset floor
+                    source="fake",
+                    clock="backend",
+                    floor=config.ONSET_FLOOR_FAKE,
+                    landmarks=frame.get("image"),
+                    world=frame.get("world"),
+                ))
+            self._floors["fake"] = config.ONSET_FLOOR_FAKE
+        return len(frames)
 
     def local_available(self) -> bool:
         if not CV2_OK:
@@ -255,10 +332,11 @@ class VisionEngine:
             if frame is None:
                 continue
 
-            speed, landmarks, floor = self._analyze(frame, source)
+            speed, landmarks, world, floor = self._analyze(frame, source, t_source)
             now = time.perf_counter()
             with self.lock:
-                self.samples.append(Sample(t_source, now, speed, source, clock, floor))
+                self.samples.append(Sample(t_source, now, speed, source, clock, floor,
+                                           landmarks=landmarks, world=world))
                 self.last_speed = speed
                 self.last_floor = floor
                 self.last_source = source
@@ -268,24 +346,79 @@ class VisionEngine:
             self._maybe_preview(frame, landmarks)
 
     def _ensure_pose(self) -> None:
-        if self._pose is not None or not (MP_OK and CV2_OK) or not self.pose_ok:
-            return
-        try:
-            self._pose = mp.solutions.pose.Pose(
-                static_image_mode=False,
-                model_complexity=0,
-                enable_segmentation=False,
-                min_detection_confidence=0.5,
-                min_tracking_confidence=0.5,
-            )
-        except Exception as exc:  # pragma: no cover - defensive
-            self.pose_ok = False
-            self.pose_error = f"{type(exc).__name__}: {exc}"
+        """Create the Tasks Pose Landmarker once, in the processing thread.
 
-    def _analyze(self, frame: Any, source: str) -> tuple[float, list | None, float]:
-        """Return (speed, landmarks, floor) for one frame."""
+        Legacy `mp.solutions.pose` is only a fallback after Tasks creation
+        fails.  Frame-difference motion is the final fallback.
+        """
+        if self._pose_ready:
+            return
+        self._pose_ready = True
+        if not (CV2_OK and MP_OK) or not self.pose_ok:
+            self.pose_backend = "motion"
+            if self.pose_error is None:
+                self.pose_error = ("opencv unavailable" if not CV2_OK
+                                   else "mediapipe unavailable")
+            return
+
+        if MP_TASKS_OK and mp is not None and mp_python is not None and mp_vision is not None:
+            try:
+                options = mp_vision.PoseLandmarkerOptions(
+                    base_options=mp_python.BaseOptions(
+                        model_asset_path=str(config.POSE_MODEL_PATH)),
+                    running_mode=mp_vision.RunningMode.VIDEO,
+                    num_poses=1,
+                    min_pose_detection_confidence=0.5,
+                    min_tracking_confidence=0.5,
+                )
+                self._landmarker = mp_vision.PoseLandmarker.create_from_options(options)
+                self.pose_backend = "tasks"
+                self.pose_ok = True
+                self.pose_error = None
+                return
+            except Exception as exc:  # pragma: no cover - model/runtime failure
+                self.pose_error = f"tasks: {type(exc).__name__}: {exc}"
+
+        if MP_LEGACY_OK and mp_legacy_pose is not None:
+            try:
+                self._pose = mp_legacy_pose.Pose(
+                    static_image_mode=False,
+                    model_complexity=0,
+                    enable_segmentation=False,
+                    min_detection_confidence=0.5,
+                    min_tracking_confidence=0.5,
+                )
+                self.pose_backend = "legacy"
+                self.pose_ok = True
+                return
+            except Exception as exc:  # pragma: no cover - defensive
+                self.pose_error = (self.pose_error or "") + \
+                    f"; legacy: {type(exc).__name__}: {exc}"
+
+        self.pose_ok = False
+        self.pose_backend = "motion"
+
+    def _video_timestamp_ms(self, t_capture: float | None) -> int:
+        """Strictly increasing millisecond timestamp for Tasks VIDEO mode."""
+        ts = float(t_capture) if t_capture is not None else time.perf_counter()
+        if ts <= 0:
+            ts = time.perf_counter()
+        # Browser performance.now() is milliseconds; backend perf_counter is
+        # seconds.  The clamp keeps the Tasks tracker happy across sources.
+        if ts > 1e6:
+            ts /= 1000.0
+        ms = int(ts * 1000.0)
+        if ms <= self._video_ts_ms:
+            ms = self._video_ts_ms + 1
+        self._video_ts_ms = ms
+        return ms
+
+    def _analyze(self, frame: Any, source: str,
+                 t_capture: float | None = None
+                 ) -> tuple[float, list | None, list | None, float]:
+        """Return (speed, image_landmarks, world_landmarks, floor) for one frame."""
         if not CV2_OK:
-            return 0.0, None, config.ONSET_FLOOR_FAKE
+            return 0.0, None, None, config.ONSET_FLOOR_FAKE
 
         h, w = frame.shape[:2]
         small = cv2.resize(frame, (160, 120), interpolation=cv2.INTER_AREA)
@@ -298,25 +431,51 @@ class VisionEngine:
         self._prev_gray[source] = gray
 
         if not self.pose_ok:
-            return max(0.0, motion), None, config.ONSET_FLOOR_MOTION
+            return max(0.0, motion), None, None, config.ONSET_FLOOR_MOTION
 
         self._ensure_pose()
-        if self._pose is None:
-            return max(0.0, motion), None, config.ONSET_FLOOR_MOTION
+        if self._landmarker is None and self._pose is None:
+            return max(0.0, motion), None, None, config.ONSET_FLOOR_MOTION
 
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        try:
-            result = self._pose.process(rgb)
-        except Exception as exc:  # pragma: no cover
-            self.pose_ok = False
-            self.pose_error = f"{type(exc).__name__}: {exc}"
-            return max(0.0, motion), None, config.ONSET_FLOOR_MOTION
-
-        lms = result.pose_landmarks.landmark if result.pose_landmarks else None
-        if not lms:
-            return max(0.0, motion), None, config.ONSET_FLOOR_MOTION
-
-        pts = [(float(p.x), float(p.y), float(getattr(p, "visibility", 0.0))) for p in lms]
+        world_pts = None
+        if self._landmarker is not None:
+            try:
+                mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+                result = self._landmarker.detect_for_video(
+                    mp_image, self._video_timestamp_ms(t_capture))
+                pose = result.pose_landmarks[0] if result.pose_landmarks else None
+                world = (result.pose_world_landmarks[0]
+                         if result.pose_world_landmarks else None)
+                if not pose:
+                    return max(0.0, motion), None, None, config.ONSET_FLOOR_MOTION
+                pts = [(float(p.x), float(p.y), float(getattr(p, "z", 0.0)),
+                        float(getattr(p, "visibility", 0.0))) for p in pose]
+                if world:
+                    world_pts = [(float(p.x), float(p.y), float(p.z))
+                                 for p in world]
+            except Exception as exc:  # pragma: no cover - runtime failure
+                self.pose_ok = False
+                self.pose_error = f"tasks: {type(exc).__name__}: {exc}"
+                self.pose_backend = "motion"
+                return max(0.0, motion), None, None, config.ONSET_FLOOR_MOTION
+        else:
+            try:
+                result = self._pose.process(rgb)
+            except Exception as exc:  # pragma: no cover
+                self.pose_ok = False
+                self.pose_error = f"legacy: {type(exc).__name__}: {exc}"
+                self.pose_backend = "motion"
+                return max(0.0, motion), None, None, config.ONSET_FLOOR_MOTION
+            lms = result.pose_landmarks.landmark if result.pose_landmarks else None
+            if not lms:
+                return max(0.0, motion), None, None, config.ONSET_FLOOR_MOTION
+            pts = [(float(p.x), float(p.y), float(getattr(p, "z", 0.0)),
+                    float(getattr(p, "visibility", 0.0))) for p in lms]
+            wl = getattr(result, "pose_world_landmarks", None)
+            if wl and getattr(wl, "landmark", None):
+                world_pts = [(float(p.x), float(p.y), float(p.z))
+                             for p in wl.landmark]
         aspect = w / max(1, h)
         sw = math.hypot((pts[11][0] - pts[12][0]) * aspect, pts[11][1] - pts[12][1])
         if sw < 0.04:
@@ -337,7 +496,7 @@ class VisionEngine:
         self._last_pose = (now, pts)
         self._last_pose_source = source
         self._last_pts = pts
-        return max(0.0, speed), pts, config.ONSET_FLOOR_POSE
+        return max(0.0, speed), pts, world_pts, config.ONSET_FLOOR_POSE
 
     def _maybe_preview(self, frame: Any, landmarks: list | None) -> None:
         now = time.perf_counter()
@@ -442,6 +601,9 @@ class VisionEngine:
                 "local_error": self.local_error,
                 "pose_ok": self.pose_ok,
                 "pose_error": self.pose_error,
+                "pose_backend": self.pose_backend,
+                "pose_model": self.pose_model,
+                "pose_model_exists": config.POSE_MODEL_PATH.exists(),
                 "remote_active": self.remote_active(),
                 "remote_clock": self.remote_clock,
                 "fps": round(self.fps(active), 1),

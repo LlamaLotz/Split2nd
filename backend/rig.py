@@ -91,6 +91,8 @@ class BaseRig:
         self.last_error: str | None = None
         self.last_event: str | None = None
         self.last_distance_cm: int | None = None
+        self.last_distance_t = 0.0
+        self.distance_hist: deque[tuple[float, int]] = deque(maxlen=900)
         self.firmware: str | None = None
         self.i2c: str | None = None
         self.demo_on = False
@@ -151,6 +153,27 @@ class BaseRig:
             # The firmware turns all LEDs off when demo mode ends.
             self.led_state = "0"
         self.send(f"DEMO {1 if on else 0}")
+
+    def distance(self) -> tuple[int | None, float]:
+        """Latest real ultrasonic Z reading: (cm, age_seconds).
+
+        A negative firmware value (-1, no echo) is returned as None.
+        """
+        with self._lock:
+            cm = self.last_distance_cm
+            age = (time.perf_counter() - self.last_distance_t) if self.last_distance_t else 999.0
+        return (None if cm is None or cm < 0 else cm), age
+
+    def distance_at(self, t: float, max_age: float = 0.35) -> int | None:
+        """Nearest real ultrasonic reading to a perf_counter timestamp."""
+        with self._lock:
+            hist = list(self.distance_hist)
+        if not hist:
+            return None
+        nearest = min(hist, key=lambda item: abs(item[0] - t))
+        if abs(nearest[0] - t) > max_age:
+            return None
+        return int(nearest[1])
 
     def stim(self) -> None:
         self.send("STIM")
@@ -239,6 +262,7 @@ class BaseRig:
             head = parts[0].upper()
             if head == "HIT" and len(parts) >= 3:
                 kind, args = "HIT", [int(parts[1]), int(parts[2])]
+                self.last_distance_cm = int(parts[2])
             elif head == "DEMO" and len(parts) >= 2:
                 kind = "DEMO"
                 try:
@@ -279,6 +303,12 @@ class BaseRig:
                 kind = "LINE"
                 args = [raw]
         event = {"t": time.perf_counter(), "kind": kind, "args": args, "raw": raw}
+        if kind in ("DEMO", "DIST", "HIT"):
+            self.last_distance_t = event["t"]
+            cm = self.last_distance_cm
+            if cm is not None and cm >= 0:
+                with self._lock:
+                    self.distance_hist.append((event["t"], int(cm)))
         self.last_event = raw
         self.raw_log.append(event)
         self.events.put(event)

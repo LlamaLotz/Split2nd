@@ -1,0 +1,10 @@
+# Dataset build only. Keep separate from requirements.txt:
+# mediapipe==0.10.21 pins numpy<2, so pandas/pyarrow must stay on
+# versions that support numpy 1.26.
+pandas==2.2.3
+pyarrow==16.1.0
+openpyxl>=3.1
+tqdm>=4.66
+gdown>=5.2
+kagglehub>=0.3
+av>=13

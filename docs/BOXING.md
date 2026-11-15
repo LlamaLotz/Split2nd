@@ -1,6 +1,6 @@
 # Boxing mode: actions, thresholds, and WebSocket contract
 
-Status: **backend complete; laptop-camera validation pending.**
+Status: **backend + `/boxing` display complete; laptop-camera validation pending.**
 The current demo rig is the **laptop integrated webcam + laptop screen + Arduino/ultrasonic**. The controller page is the display. No phone client is required. `VISION=local` is the real path; `VISION=fake` is the automated/demo fallback.
 
 This is a rule-based **gross-action** classifier built on MediaPipe pose landmarks. It is not a trained punch classifier and it does not measure punch force. See [Limits and cue reliability](#limits-and-cue-reliability).
@@ -38,6 +38,23 @@ Smoke test:
 ```bash
 python scripts/check_pose_landmarker.py
 # POSE_LANDMARKER_OK model=.../models/pose_landmarker_lite.task backend=tasks
+```
+
+### Real ultrasonic Z (COM6)
+
+The HC-SR04 is a real depth channel, not a pose prediction. The engine polls
+`DIST` while idle and records the real `HIT <cm>` at the gate during the rep;
+both feed a timestamped history. Each pose frame is matched to the nearest
+fresh reading and the classifier computes `sensor_drop_cm`. That real drop is
+the **primary** straight-punch condition; monocular pose world-z is only the
+fallback when the sensor has no fresh reading. Hooks and uppercuts are still
+classified from X/Y and elbow geometry. The live page shows the raw Z and the
+Z drop for every cue.
+
+Run the laptop rig with:
+
+```bash
+python scripts/run.py --no-tls --vision local --rig serial --rig-port COM6
 ```
 
 The WSL unit-test environment does not need MediaPipe; all classifier tests use synthetic landmarks. On the Windows demo laptop, run the smoke test once before the set.

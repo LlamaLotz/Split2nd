@@ -66,6 +66,7 @@ def main() -> None:
 
     print("\nSplit2nd (laptop rig)")
     print(f"  controller : {public_url}/")
+    print(f"  boxing     : {public_url}/boxing")
     print(f"  health     : {public_url}/api/health")
     print(f"  camera     : index {args.camera} (Lenovo integrated, "
           f"{os.getenv('CAMERA_WIDTH', '640')}x{os.getenv('CAMERA_HEIGHT', '480')}"

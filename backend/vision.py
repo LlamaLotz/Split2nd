@@ -120,6 +120,8 @@ class VisionEngine:
         self._landmarker = None    # Tasks PoseLandmarker
         self._pose_ready = False
         self._video_ts_ms = 0
+        self._last_pts = None
+        self._pose_hist: deque[tuple[float, list[tuple[float, float, float, float]]]] = deque(maxlen=180)
         self._fake_onset_at: float | None = None
         self._fake_started = False
         self._floors: dict[str, float] = {}
@@ -496,6 +498,7 @@ class VisionEngine:
         self._last_pose = (now, pts)
         self._last_pose_source = source
         self._last_pts = pts
+        self._pose_hist.append((now, pts))
         return max(0.0, speed), pts, world_pts, config.ONSET_FLOOR_POSE
 
     def _maybe_preview(self, frame: Any, landmarks: list | None) -> None:
@@ -550,6 +553,15 @@ class VisionEngine:
                 if source is None or s.source == source:
                     return s.speed
         return 0.0
+
+    def pose_history(self, since: float = 0.0) -> list[tuple[float, list]]:
+        """Pose landmark history for the boxing coach, oldest first.
+
+        Each landmark is (x, y, z, visibility) in MediaPipe's 33-point
+        layout.  The coach uses only x/y; the ultrasonic rig supplies Z.
+        """
+        with self.lock:
+            return [(t, pts) for t, pts in self._pose_hist if t >= since]
 
     def onset_floor(self, source: str | None = None) -> float:
         with self.lock:

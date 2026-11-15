@@ -521,6 +521,12 @@ class DrillEngine:
                 return
             if now - self.arm_started < 0.15:
                 return
+            # Boxing has no hold-still rule: a bouncing guard is not a false
+            # start, and pose jitter must not block the cue. Racing keeps the
+            # stillness gate.
+            if self.mode == "boxing":
+                await self._schedule()
+                return
             if self.vision.hold_still(self.source):
                 await self._schedule()
             elif now - self.arm_started > config.ARM_TIMEOUT_S:

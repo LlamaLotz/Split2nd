@@ -164,6 +164,11 @@ async def cam() -> FileResponse:
     return FileResponse(config.FRONTEND_DIR / "cam.html")
 
 
+@app.get("/boxing")
+async def boxing_page() -> FileResponse:
+    return FileResponse(config.FRONTEND_DIR / "boxing.html")
+
+
 @app.get("/ca.crt")
 async def ca_cert():
     path = config.CERT_DIR / "ca.crt"
@@ -178,7 +183,7 @@ async def ca_cert():
 # ----------------------------------------------------------------------
 @app.get("/video")
 async def video():
-    def gen():
+    async def gen():
         boundary = b"--frame\r\n"
         while True:
             jpeg = vision.latest_jpeg()
@@ -186,7 +191,10 @@ async def video():
                 yield (boundary
                        + b"Content-Type: image/jpeg\r\nContent-Length: "
                        + str(len(jpeg)).encode() + b"\r\n\r\n" + jpeg + b"\r\n")
-            time.sleep(1.0 / max(1, config.PREVIEW_FPS))
+            # Async sleep, not time.sleep: a sync StreamResponse loop can
+            # occupy the event loop and freeze /api/health while the page is
+            # showing the camera.
+            await asyncio.sleep(1.0 / max(1, config.PREVIEW_FPS))
 
     return StreamingResponse(gen(), media_type="multipart/x-mixed-replace; boundary=frame",
                              headers={"Cache-Control": "no-store"})

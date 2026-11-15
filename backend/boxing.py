@@ -617,11 +617,13 @@ def _straight_candidates(features: dict[str, Any], stance: str) -> list[dict[str
         travel = float(h.get("travel") or 0.0)
         horizontal = max(abs(float(h.get("dx") or 0.0)), abs(float(h.get("dy") or 0.0)))
         sensor = features.get("sensor_drop_cm")
-        if sensor is not None:
-            # The real ultrasonic Z is authoritative when available; do not
-            # let the monocular world-z prediction override the sensor.
+        if sensor is not None and float(sensor) > 1.0:
+            # The real ultrasonic Z is authoritative when it actually saw a
+            # drop; do not let the monocular world-z prediction override it.
             straight_primary = float(sensor) >= THRESHOLDS["sensor_straight_drop_cm"]
         else:
+            # No in-rep Z reading (short punch / sensor not crossed): fall
+            # back to the pose depth rather than vetoing a real straight.
             straight_primary = depth >= THRESHOLDS["straight_depth_drop"]
         conds = [
             straight_primary,

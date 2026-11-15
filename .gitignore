@@ -12,6 +12,13 @@ data/*.jpg
 data/*.npy
 !data/.gitkeep
 
+# generated training datasets (large; rebuild with scripts/build_olympic_dataset.py)
+data/olympic/
+data/boxingvi_raw/
+data/punch_dl/
+data/hf/
+olympic_boxing_adaption.zip
+
 # local TLS material
 certs/
 

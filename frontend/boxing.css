@@ -2535,3 +2535,26 @@ body.boxing-mode .p-cam .rec { display: none; }
 
   .box-mascot { animation: none !important; }
 }
+
+
+/* Movement validation strip (laptop arena result). */
+.arena-validation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-top: 6px;
+  padding: 0 2px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+}
+.arena-validation .av { display: inline-flex; align-items: center; gap: 4px; }
+.arena-validation .av i { font-style: normal; font-weight: 600; }
+.arena-validation .av.ok i { color: var(--signal); }
+.arena-validation .av.dim { color: var(--dim); }
+.arena-validation .av.dim i { color: var(--dim); }
+.arena-validation .av.conf { color: var(--text); margin-left: auto; }
+@media (prefers-reduced-motion: reduce) {
+  .arena-validation { transition: none; }
+}

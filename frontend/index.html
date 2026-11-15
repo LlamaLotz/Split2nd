@@ -10,6 +10,7 @@
 <link rel="apple-touch-icon" href="/static/assets/icon-1024.svg">
 <link rel="manifest" href="/static/manifest.webmanifest">
 <link rel="stylesheet" href="/static/boxing.css">
+<link rel="stylesheet" href="/static/edge.css">
 </head>
 <body>
 <header class="topbar">
@@ -293,6 +294,7 @@
         <div class="arena-result-grade" id="arenaGrade">—</div>
         <div class="arena-result-ghost" id="arenaGhost">--</div>
       </div>
+      <div class="arena-validation" id="arenaValidation" hidden></div>
       <div class="arena-last" id="arenaLast">Step back so your head and both hands are in frame. Press Start set.</div>
       <div class="arena-reward is-empty" id="arenaReward">
         <span class="arena-stars" id="arenaStars"></span>
@@ -392,6 +394,7 @@
 </div>
 
 <div id="toast"></div>
+<script src="/static/edge.js" defer></script>
 <script type="module" src="/static/controller.js"></script>
 </body>
 </html>

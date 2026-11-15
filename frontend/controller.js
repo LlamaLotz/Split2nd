@@ -9,6 +9,7 @@ const S = {
   players: [],
   phase: "idle",
   state: {},
+  lastDistance: null,
   room: null,
   config: {},
   result: null,
@@ -142,6 +143,7 @@ function handle(msg) {
     case "rig":
       // Low-volume hardware events; useful while wiring the Uno.
       if (msg.event === "HIT") $("#hint").textContent = `Gate ${msg.args?.[0]} ms · ${msg.args?.[1]} cm`;
+      if (msg.event === "DIST" && msg.args?.length) S.lastDistance = msg.args[0];
       break;
 
     default:
@@ -153,6 +155,7 @@ function applyState(state) {
   const prev = S.phase;
   S.state = state;
   S.phase = state.phase || "idle";
+  if (state.last_distance_cm != null) S.lastDistance = state.last_distance_cm;
   if (state.gate_cm != null) {
     $("#gate").value = state.gate_cm;
     $("#gateVal").textContent = `${state.gate_cm} cm`;
@@ -1164,6 +1167,15 @@ function formatLeadRear(value) {
       return `L ${lead != null ? fmtMs(lead) : "--"} · R ${rear != null ? fmtMs(rear) : "--"}${delta != null ? ` · ${fmtSigned(delta)}` : ""}`;
     }
     if (delta != null) return `delta ${fmtSigned(delta)}`;
+    if ("first_third_rt_ms" in value || "last_third_rt_ms" in value) {
+      const first = Number(value.first_third_rt_ms);
+      const last = Number(value.last_third_rt_ms);
+      if (Number.isFinite(first) && Number.isFinite(last) && first > 0) {
+        const pct = ((last - first) / first) * 100;
+        return `${pct > 0 ? "+" : ""}${Math.round(pct)}%`;
+      }
+      return "--";
+    }
     const bits = Object.entries(value).map(([k, v]) =>
       `${k.replace(/_/g, " ")} ${typeof v === "number" ? fmtSigned(v) : v}`
     );
@@ -1643,6 +1655,7 @@ function renderArenaResult(msg, tone, early) {
   if (progress?.accuracy != null) bits.push(fmtPct(progress.accuracy));
   if (msg.combo != null) bits.push(`combo ${msg.combo}`);
   $("#arenaLast").textContent = bits.join(" · ") || "Cue scored.";
+  renderValidation(msg.validation);
   flashResultEdge(edgeColor, edgeMs);
 }
 
@@ -1713,6 +1726,8 @@ function setArenaReward(stars, chest) {
 function hideArenaVerdict() {
   const result = $("#arenaResult");
   if (result) result.className = "arena-result hidden";
+  const validation = $("#arenaValidation");
+  if (validation) { validation.hidden = true; validation.innerHTML = ""; }
   const mark = $("#arenaMark");
   if (mark) mark.innerHTML = "";
   const arena = $("#arena");
@@ -1740,6 +1755,27 @@ function edgeTone(color) {
  * overlay owns the flash, so the local arena edge stays quiet to avoid a
  * second overlay. The local vignette is the fallback.
  */
+function renderValidation(v) {
+  const el = $("#arenaValidation");
+  if (!el) return;
+  if (!v) { el.hidden = true; el.innerHTML = ""; return; }
+  const hands = v.hands_visible || {};
+  const checks = [
+    ["Action", v.action_match !== false],
+    ["Head", !!v.head_visible],
+    ["Hands", !!(hands.lead && hands.rear)],
+    ["Gate", !!v.gate_hit],
+    ["Frame", !!v.in_frame],
+  ];
+  const conf = v.confidence != null && Number.isFinite(Number(v.confidence))
+    ? `${Math.round(Number(v.confidence) * 100)}%`
+    : "";
+  el.innerHTML = checks.map(([label, ok]) =>
+    `<span class="av ${ok ? "ok" : "dim"}"><i>${ok ? "✓" : "—"}</i>${label}</span>`
+  ).join("") + (conf ? `<span class="av conf">${conf}</span>` : "");
+  el.hidden = false;
+}
+
 function flashResultEdge(color, ms = 900) {
   const c = String(color || "G").toUpperCase();
   if (window.Split2ndEdge && typeof window.Split2ndEdge.flash === "function") {
@@ -2124,12 +2160,15 @@ async function poll() {
       const el = $(overlay);
       if (el) el.style.display = vis.has_preview ? "none" : "grid";
     }
+    const distance = S.lastDistance ?? S.state?.last_distance_cm;
+    const gate = S.state?.gate_cm ?? 30;
     const meta = [
       `${vis.fps || 0} fps`,
       `${vis.proc_ms || 0} ms/frame`,
       vis.pose_ok ? "pose" : "motion",
       `${vis.frames || 0} frames`,
       vis.remote_active ? "remote" : (vis.local_ok ? "laptop" : "fake"),
+      distance != null ? `GATE ${gate} · DIST ${distance} cm` : `GATE ${gate} · DIST --`,
     ].join(" · ");
     $("#camMeta").textContent = meta;
     $("#boxCamMeta").textContent = meta;

@@ -147,8 +147,14 @@ const BOX_LABELS = {
   jab: "JAB",
   cross: "CROSS",
   hook: "HOOK",
+  hook_l: "LEFT HOOK",
+  hook_r: "RIGHT HOOK",
   uppercut: "UPPERCUT",
+  uppercut_l: "LEFT UPPERCUT",
+  uppercut_r: "RIGHT UPPERCUT",
   slip: "SLIP",
+  slip_l: "SLIP LEFT",
+  slip_r: "SLIP RIGHT",
   slip_left: "SLIP L",
   slip_right: "SLIP R",
   duck: "DUCK",
@@ -180,14 +186,30 @@ export function boxingHandSide(hand, stance = "orthodox") {
 }
 
 /** Short label for the cue hand, e.g. "LEAD · LEFT". */
-export function boxingHandLabel(hand, stance = "orthodox") {
+export function boxingHandLabel(hand, stance = "orthodox", sideOverride = null) {
   const h = String(hand ?? "").trim().toLowerCase();
-  const side = boxingHandSide(hand, stance);
+  const side = sideOverride || boxingHandSide(hand, stance);
   if (h === "lead" || h === "rear") return `${h.toUpperCase()} · ${side.toUpperCase()}`;
   if (h === "left" || h === "right") return `${h.toUpperCase()} HAND`;
   if (h === "down" || h === "duck") return "DUCK";
   if (h === "both" || h === "center" || h === "middle") return "GUARD";
   return "";
+}
+
+/** Sentence-case hand/zone label for the arena cue. */
+export function boxingCueHand(cue = {}, stance = "orthodox") {
+  const action = String(cue.action || cue.id || "").trim().toLowerCase();
+  const side = cue.hand_side || boxingHandSide(cue.hand, cue.stance || stance);
+  if (action.startsWith("slip")) return `Head ${side}`;
+  if (action === "block") return "Guard up";
+  const hand = String(cue.hand || "").trim().toLowerCase();
+  if (hand === "lead" || hand === "rear") return `${hand} · ${side}`;
+  if (side === "left" || side === "right") {
+    const label = String(cue.label || "").toLowerCase();
+    if (/_l$|_r$/.test(action) || label.startsWith("left") || label.startsWith("right")) return side;
+    return `${side} hand`;
+  }
+  return "Match the cue";
 }
 
 export function clampNumber(value, min, max, fallback) {

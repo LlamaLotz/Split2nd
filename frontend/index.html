@@ -135,11 +135,12 @@
       <div class="console-last">
         <span class="console-label">Last cue</span>
         <div class="console-last-line">
-          <b id="boxLastRt">--</b>
+          <b id="boxLastRt" class="is-empty">—</b>
           <span class="console-unit">ms</span>
           <span class="console-grade" id="boxLastGrade">—</span>
         </div>
         <div class="console-last-meta" id="boxLastMeta">No cues yet.</div>
+        <div class="console-xp-chips hidden" id="boxXpChips"></div>
       </div>
 
       <div class="console-controls">
@@ -160,7 +161,7 @@
         <button class="btn-primary" id="boxStartBtn" type="button">START SET <kbd>SPACE</kbd></button>
         <button class="btn arena-open-btn" id="arenaBtn" type="button" aria-pressed="false">ARENA</button>
       </div>
-      <div class="console-hint" id="boxHint">Pick a stance and ghost, then start a set.</div>
+      <div class="console-hint" id="boxHint">Step back so your head and both hands are in frame. Pick a stance and ghost, then start a set.</div>
       <div class="console-keys">SPACE start set · F fullscreen · ESC exit arena · B boxing · R racing</div>
     </section>
 
@@ -234,8 +235,8 @@
         <div class="arena-athlete">
           <b id="arenaWho">Athlete</b>
           <span id="arenaLevel">LVL 1</span>
-          <span id="arenaStanceLabel">ORTHODOX</span>
-          <span id="arenaRepLabel">SET IDLE</span>
+          <span id="arenaStanceLabel">Orthodox</span>
+          <span id="arenaRepLabel">No set</span>
         </div>
       </div>
 
@@ -255,7 +256,7 @@
         <i class="vf-corner vf-bl"></i>
         <i class="vf-corner vf-br"></i>
         <div class="arena-ms-strip">
-          <span id="arenaMsLabel">WINDOW</span>
+          <span id="arenaMsLabel">Window</span>
           <b id="arenaMsValue">--</b>
           <em>ms</em>
         </div>
@@ -273,7 +274,7 @@
 
       <div class="arena-cue">
         <div class="arena-cue-word idle" id="boWord" aria-live="assertive">READY</div>
-        <div class="arena-cue-hand" id="boHand">PRESS START SET</div>
+        <div class="arena-cue-hand" id="boHand">Head and both hands in frame</div>
         <div class="arena-countdown hidden" id="arenaCountdownWrap" aria-hidden="true">
           <div class="arena-countdown-bar"><i id="boTimerBar"></i></div>
           <span id="boCount">--</span>
@@ -292,7 +293,7 @@
         <div class="arena-result-grade" id="arenaGrade">—</div>
         <div class="arena-result-ghost" id="arenaGhost">--</div>
       </div>
-      <div class="arena-last" id="arenaLast">Press START SET or Space. The laptop camera is the sensor.</div>
+      <div class="arena-last" id="arenaLast">Step back so your head and both hands are in frame. Press Start set.</div>
       <div class="arena-reward is-empty" id="arenaReward">
         <span class="arena-stars" id="arenaStars"></span>
         <span class="arena-chest hidden" id="arenaChest"></span>
@@ -356,11 +357,14 @@
     </div>
 
     <div class="arena-report-stats">
+      <span>Cues <b id="arenaReportCues">--</b></span>
+      <span>Median RT <b id="arenaReportMedian">--</b></span>
       <span>Lead / rear <b id="arenaReportBias">--</b></span>
       <span>Fatigue <b id="arenaReportFatigue">--</b></span>
       <span>Guard drops <b id="arenaReportGuard">--</b></span>
       <span>Combo breaks <b id="arenaReportBreaks">--</b></span>
     </div>
+    <div class="arena-report-mood hidden" id="arenaReportMood"></div>
 
     <div class="report-actions-wrap">
       <div class="console-subhead">Per action</div>

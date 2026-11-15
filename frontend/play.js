@@ -1,5 +1,5 @@
 import {
-  $, $$, CLOCK_ID, api, boxingHandLabel, boxingHandSide, boxingLabel,
+  $, $$, CLOCK_ID, api, boxingCueHand, boxingHandSide, boxingLabel,
   clampNumber, connectWS, esc, fmtMs, fmtPct, fmtSigned, gradeWord,
   loadMode, saveMode, toast,
 } from "./common.js";
@@ -421,6 +421,13 @@ function onState(msg) {
 
 function onBoxState(msg, prev) {
   if (msg.player) renderHud(msg.player);
+  if (msg.progress) {
+    if (msg.progress.accuracy != null) {
+      S.box.accuracy = msg.progress.accuracy;
+      setAccuracy(msg.progress.accuracy);
+    }
+    S.box.session = msg.progress;
+  }
   if (S.phase === "arm") {
     if (prev !== "arm") {
       hideBoxReport();
@@ -486,7 +493,7 @@ function status(text, go = false) {
 function runBoxCue(msg) {
   clearBoxCue();
   hideBoxReport();
-  if (Number(msg.rep) === 1) resetBoxSessionView();
+  if ((msg.progress?.done ?? (Number(msg.rep) - 1)) === 0) resetBoxSessionView();
   S.box.cue = { ...(msg.cue || {}), rep: msg.rep };
   S.box.windowMs = clampNumber(msg.window_ms, 400, 5000, 1400);
   const delay = clampNumber(msg.delay_ms, 0, 5000, 650);
@@ -494,8 +501,11 @@ function runBoxCue(msg) {
   hideBoxVerdict();
   hideReward();
   setEdge("");
-  boxIdle("READY", "WATCH THE LINE");
-  $("#boxLast").textContent = msg.rep ? `Rep ${msg.rep} · watch the line.` : "Watch the line.";
+  boxIdle("READY", "Watch the line");
+  const rep = msg.progress
+    ? `Rep ${Math.min(msg.progress.done + 1, msg.progress.total)}/${msg.progress.total}`
+    : msg.rep ? `Rep ${msg.rep}` : "Watch";
+  $("#boxLast").textContent = `${rep} · watch the line.`;
 
   S.box.timers.push(setTimeout(paintBoxCue, delay));
 }
@@ -504,8 +514,8 @@ function paintBoxCue() {
   const cue = S.box.cue;
   if (!cue) return;
   const label = cue.label || boxingLabel(cue.action);
-  const side = boxingHandSide(cue.hand, S.stance);
-  const hand = boxingHandLabel(cue.hand, S.stance);
+  const side = cue.hand_side || boxingHandSide(cue.hand, cue.stance || S.stance);
+  const hand = boxingCueHand(cue, cue.stance || S.stance);
   const word = $("#boxCueWord");
   word.textContent = label;
   word.classList.remove("idle", "box-good", "box-slow", "box-bad", "box-false");
@@ -526,7 +536,7 @@ function paintBoxCue() {
   S.box.cuePainted = true;
 
   $(".box-countdown").classList.remove("hidden");
-  $("#boxLast").textContent = "Match the cue.";
+  $("#boxLast").textContent = cue.cue || "Match the cue.";
   const bar = $("#boxCountBar");
   bar.classList.remove("run");
   bar.style.animationDuration = `${S.box.windowMs}ms`;
@@ -544,21 +554,25 @@ function setRings(side) {
 }
 
 function boxTone(msg) {
-  const early = isEarly(msg);
-  const quality = String(msg.quality || msg.outcome || "").toLowerCase();
-  const slow = msg.slow === true || msg.grade === "Y" || /solid|slow/.test(quality);
-  if (early) return { key: "false", word: "FALSE START" };
-  if (!msg.correct) return { key: "bad", word: "MISS" };
-  if (slow) return { key: "slow", word: "SOLID" };
+  if (isEarly(msg)) return { key: "false", word: "FALSE START" };
+  const outcome = String(msg.outcome || "").toLowerCase();
+  if (outcome === "miss" || msg.miss) return { key: "bad", word: "MISS" };
+  if (outcome === "wrong" || msg.correct === false) return { key: "bad", word: "WRONG" };
+  if (msg.grade === "Y") return { key: "slow", word: "SOLID" };
+  if (msg.grade === "R") return { key: "bad", word: "SLOW" };
   return { key: "good", word: "CLEAN" };
 }
 
 function mascotForResult(tone, msg) {
   if (tone.key === "false" || tone.key === "bad") return "sad";
-  if (msg.xp?.pb) return "fire";
   if (Number(S.player?.streak) >= 3) return "fire";
   if (Number(msg.combo) >= 5) return "fire";
   return "happy";
+}
+
+function mascotMood(value) {
+  const raw = typeof value === "string" ? value : value?.mood;
+  return ({ happy: "happy", neutral: "idle", tired: "sad", fire: "fire", idle: "idle", sad: "sad" })[raw] || "idle";
 }
 
 function startCountdown(ms) {
@@ -613,14 +627,16 @@ function onBoxResult(msg) {
   const early = isEarly(msg);
   const tone = boxTone(msg);
   const cue = S.box.cue || {};
-  const expected = boxingLabel(msg.expected || cue.action);
+  const expected = boxingLabel(msg.expected_action || msg.expected || cue.action);
   const detected = early
     ? tone.word
-    : msg.detected
-      ? boxingLabel(msg.detected)
+    : msg.detected_action || msg.detected
+      ? boxingLabel(msg.detected_action || msg.detected)
       : msg.correct
         ? expected
         : "—";
+  const rt = msg.reaction_ms ?? msg.rt_ms ?? null;
+  const progress = msg.progress || null;
 
   if (S.box.countTimer) {
     clearInterval(S.box.countTimer);
@@ -636,16 +652,18 @@ function onBoxResult(msg) {
   word.classList.add(`box-${tone.key}`);
 
   const handEl = $("#boxCueHand");
-  handEl.textContent = cue.hand ? boxingHandLabel(cue.hand, S.stance) : "MATCH THE CUE";
+  handEl.textContent = cue.hand ? boxingCueHand(cue, S.stance) : "MATCH THE CUE";
   handEl.classList.remove("idle");
 
-  flashEdge(tone.key);
+  const edgeColor = msg.edge?.color || (msg.correct ? "G" : msg.false_start ? "F" : "R");
+  flashResultEdge(edgeColor, msg.edge?.ms || 900);
   navigator.vibrate?.(msg.correct ? 55 : [40, 50, 40]);
 
   S.box.combo = msg.combo != null ? Number(msg.combo) : (msg.correct ? S.box.combo + 1 : 0);
   S.box.xp += Number(msg.xp?.total || 0);
-  if (msg.session?.accuracy != null) S.box.accuracy = msg.session.accuracy;
-  S.box.session = msg.session || S.box.session;
+  if (progress?.accuracy != null) S.box.accuracy = progress.accuracy;
+  else if (msg.session_stats?.accuracy != null) S.box.accuracy = msg.session_stats.accuracy;
+  S.box.session = progress || msg.session_stats || S.box.session;
   setCombo(S.box.combo);
   setXp(S.box.xp);
   setAccuracy(S.box.accuracy);
@@ -654,20 +672,25 @@ function onBoxResult(msg) {
   renderReward(msg.stars, msg.chest);
 
   $("#vExpected").textContent = `EXPECTED ${expected}`;
-  $("#vDetected").textContent = early ? tone.word : `${tone.word} · ${detected}`;
+  $("#vDetected").textContent = early
+    ? tone.word
+    : msg.outcome === "miss"
+      ? `${tone.word} · NO ACTION`
+      : `${tone.word} · ${detected}`;
   $("#vMark").innerHTML = msg.correct ? SVG_CHECK : SVG_CROSS;
   const verdict = $("#boxVerdict");
   verdict.className = `box-verdict box-${tone.key}`;
   verdict.classList.remove("hidden");
 
   const bits = [];
-  if (msg.reaction_ms != null) bits.push(`${fmtMs(msg.reaction_ms)} ms`);
+  if (rt != null) bits.push(`${fmtMs(rt)} ms`);
+  else if (msg.correct) bits.push("held guard");
   if (msg.execution_ms != null) bits.push(`exec ${fmtMs(msg.execution_ms)} ms`);
   if (msg.xp?.total) bits.push(`+${msg.xp.total} XP`);
-  if (msg.ghost_delta != null) bits.push(`${fmtSigned(msg.ghost_delta)} vs ${msg.ghost?.name || "ghost"}`);
-  if (msg.session) {
-    bits.push(`rep ${msg.session.index}/${msg.session.total}`);
-    if (msg.session.accuracy != null) bits.push(fmtPct(msg.session.accuracy));
+  if (msg.ghost_delta != null) bits.push(`${fmtSigned(msg.ghost_delta)} vs ghost`);
+  if (progress) {
+    bits.push(`rep ${progress.done}/${progress.total}`);
+    bits.push(fmtPct(progress.accuracy));
   }
   $("#boxLast").textContent = bits.join(" · ") || "Cue scored.";
   S.phase = "result";
@@ -676,6 +699,20 @@ function onBoxResult(msg) {
 function isEarly(msg) {
   const detected = String(msg?.detected ?? "").toLowerCase();
   return msg?.false_start === true || /false|early|anticip/.test(detected);
+}
+
+const EDGE_TONES = { G: "good", Y: "slow", R: "bad", F: "false" };
+
+function edgeTone(color) {
+  return EDGE_TONES[String(color || "G").toUpperCase()] || "good";
+}
+
+function flashResultEdge(color, ms = 900) {
+  const c = String(color || "G").toUpperCase();
+  if (window.Split2ndEdge && typeof window.Split2ndEdge.flash === "function") {
+    try { window.Split2ndEdge.flash(c, ms); return; } catch {}
+  }
+  flashEdge(edgeTone(c));
 }
 
 function flashEdge(tone) {
@@ -743,10 +780,10 @@ function renderReward(stars, chest) {
   let any = false;
 
   if (stars !== null && stars !== undefined) {
-    const n = clampNumber(stars, 0, 5, 0);
+    const n = clampNumber(stars, 0, 3, 0);
     starWrap.innerHTML = starsHtml(stars);
     starWrap.setAttribute("role", "img");
-    starWrap.setAttribute("aria-label", `${n} of 5 stars`);
+    starWrap.setAttribute("aria-label", `${n} of 3 stars`);
     any = true;
   } else {
     starWrap.innerHTML = "";
@@ -778,33 +815,44 @@ function hideReward() {
 /* ------------------------------------------------------------------ */
 /* session report                                                     */
 /* ------------------------------------------------------------------ */
+function reportActionRows(report) {
+  if (!report) return [];
+  if (Array.isArray(report.per_action)) return report.per_action;
+  if (report.by_action && typeof report.by_action === "object") {
+    return Object.entries(report.by_action).map(([action, value]) => ({ action, ...value }));
+  }
+  return [];
+}
+
 function onSessionEnd(msg) {
   const report = msg.report || {};
   S.box.report = report;
   S.box.reportOpen = true;
   clearBoxCue();
   const starCount = Number(msg.stars);
-  setMascot(msg.mascot || (Number.isFinite(starCount) && starCount < 4 ? "sad" : "happy"));
+  setMascot(msg.mascot || (Number.isFinite(starCount) && starCount < 2 ? "sad" : "happy"));
 
   $("#reportAccuracy").textContent = fmtPct(report.accuracy);
-  const reportStarCount = clampNumber(msg.stars, 0, 5, 0);
+  const reportStarCount = clampNumber(msg.stars, 0, 3, 0);
   $("#reportStars").innerHTML = starsHtml(msg.stars);
   $("#reportStars").setAttribute("role", "img");
-  $("#reportStars").setAttribute("aria-label", `${reportStarCount} of 5 stars`);
-  const chest = chestLabel(msg.chest);
-  $("#reportChest").innerHTML = chest ? `${BADGE_CHEST}<span>${esc(chest)}</span>` : "";
-  $("#reportBias").textContent = formatLeadRear(report.lead_rear);
+  $("#reportStars").setAttribute("aria-label", `${reportStarCount} of 3 stars`);
+  const chest = chestParts(msg.chest);
+  $("#reportChest").innerHTML = chest.title
+    ? `${BADGE_CHEST}<span>${esc(chest.title)}</span>${chest.detail ? `<small>${esc(chest.detail)}</small>` : ""}`
+    : "";
+  $("#reportBias").textContent = "--";
   $("#reportFatigue").textContent = formatFatigue(report.fatigue);
   $("#reportGuard").textContent = report.guard_drops ?? "--";
   $("#reportBreaks").textContent = report.combo_breaks ?? "--";
 
-  const per = Array.isArray(report.per_action) ? report.per_action : [];
+  const per = reportActionRows(report);
   $("#reportActions").innerHTML = per.length
     ? per.map((a) => `
       <div class="report-action-row">
         <span class="ra-name">${esc(boxingLabel(a.action))}</span>
         <span class="ra-acc">${fmtPct(a.accuracy)}</span>
-        <span class="ra-rt">${a.median_rt != null ? `${fmtMs(a.median_rt)} ms` : "--"}</span>
+        <span class="ra-rt">${(a.median_rt_ms ?? a.median_rt) != null ? `${fmtMs(a.median_rt_ms ?? a.median_rt)} ms` : "--"}</span>
       </div>`).join("")
     : `<div class="box-empty">No per-action data.</div>`;
 
@@ -813,7 +861,8 @@ function onSessionEnd(msg) {
   ghostEl.classList.toggle("hidden", !ghost);
   ghostEl.innerHTML = ghost ? `<span>Ghost</span><b>${esc(ghost)}</b>` : "";
 
-  if (msg.report.accuracy != null) setAccuracy(msg.report.accuracy);
+  if (msg.player) { S.player = msg.player; renderHud(msg.player); }
+  if (report.accuracy != null) setAccuracy(report.accuracy);
   const setXpEl = $("#boxXp");
   if (setXpEl) setXpEl.textContent = `+${S.box.xp}`;
 
@@ -840,6 +889,7 @@ $("#reportNext").onclick = () => {
     player_id: PLAYER_ID,
     mode: "boxing",
     stance: S.stance,
+    ghost_session_id: null,
   };
   const sent = ws?.send(payload);
   toast(sent ? "Next set requested" : "Offline - reconnect first");
@@ -864,6 +914,7 @@ function onResult(msg) {
 
   S.phase = "result";
   status("");
+  flashResultEdge(msg.edge?.color || msg.grade, msg.edge?.ms || 900);
   navigator.vibrate?.(70);
 
   const rt = msg.rt_ms;
@@ -1007,7 +1058,7 @@ async function probeMascot() {
 }
 
 function setMascot(state) {
-  const mood = ["idle", "happy", "sad", "fire"].includes(state) ? state : "idle";
+  const mood = mascotMood(state);
   S.box.mascotState = mood;
   const el = $("#boxMascot");
   if (!el) return;
@@ -1029,20 +1080,27 @@ function setMascot(state) {
 /* formatting helpers                                                 */
 /* ------------------------------------------------------------------ */
 function starsHtml(stars) {
-  const n = clampNumber(stars, 0, 5, 0);
-  return Array.from({ length: 5 }, (_, i) =>
+  const n = clampNumber(stars, 0, 3, 0);
+  return Array.from({ length: 3 }, (_, i) =>
     `<img class="box-star ${i < n ? "" : "off"}" src="/static/assets/badge-star.svg" alt="">`
   ).join("");
 }
 
-function chestLabel(chest) {
-  if (chest === null || chest === undefined || chest === false) return "";
-  if (typeof chest === "string") return chest;
-  if (typeof chest === "boolean") return chest ? "Chest" : "";
+function chestParts(chest) {
+  if (chest === null || chest === undefined || chest === false) return { title: "", detail: "" };
+  if (typeof chest === "string") return { title: chest, detail: "" };
+  if (typeof chest === "boolean") return { title: chest ? "Chest" : "", detail: "" };
   if (typeof chest === "object") {
-    return String(chest.name || chest.label || chest.id || chest.rarity || "") || "Chest";
+    const tier = chest.tier && chest.tier !== "none" ? String(chest.tier) : "";
+    const title = String(chest.title || chest.name || chest.label || chest.id || "") || (tier ? `${tier} chest` : "");
+    const detail = String(chest.detail || (tier && !chest.title ? tier : "") || "");
+    return { title, detail };
   }
-  return String(chest);
+  return { title: String(chest), detail: "" };
+}
+
+function chestLabel(chest) {
+  return chestParts(chest).title;
 }
 
 function ghostLabel(ghost) {
@@ -1083,7 +1141,12 @@ function formatFatigue(value) {
   }
   if (typeof value === "string") return value;
   if (typeof value === "object") {
-    const n = value.pct ?? value.percent ?? value.slowing_pct ?? value.delta_pct ?? value.value;
+    const direct = value.pct ?? value.percent ?? value.delta_pct;
+    if (direct != null && Number.isFinite(Number(direct))) {
+      const pct = Math.round(Number(direct) * 10) / 10;
+      return `${pct > 0 ? "+" : ""}${pct}%`;
+    }
+    const n = value.slowing_pct ?? value.value;
     if (n != null && Number.isFinite(Number(n))) {
       const pct = Math.abs(Number(n)) <= 1 ? Number(n) * 100 : Number(n);
       return `${pct > 0 ? "+" : ""}${Math.round(pct)}%`;

@@ -1,9 +1,10 @@
 /* ================================================================
-   Boxing UI — controller panel + phone cue board.
+   Boxing UI — laptop arena, between-set console, phone fallback.
 
    Values come from tokens.css (imported by app.css). No palette hex
    literals live here. State colour always uses the boxing tokens and is
-   always paired with a word (Clean / Solid / Miss / False start).
+   always paired with a word (Clean / Solid / Slow / Wrong / Miss /
+   False start).
    ================================================================ */
 
 /* ---------------------------------------------------------------- vignette contract */
@@ -116,6 +117,7 @@
   font-weight: 600;
   letter-spacing: 0.04em;
   padding: 5px 9px;
+  min-height: 44px;
   line-height: 1;
   transition: background var(--dur-snap) var(--ease-out), color var(--dur-snap) var(--ease-out);
 }
@@ -434,9 +436,9 @@ body:not(.mode-boxing) .box-only { display: none !important; }
 
 .console-note {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--text-meta);
   font-weight: 400;
-  color: var(--dim);
+  color: var(--muted);
 }
 
 .console-athlete {
@@ -496,7 +498,7 @@ body:not(.mode-boxing) .box-only { display: none !important; }
   width: 0;
   height: 100%;
   border-radius: inherit;
-  background: var(--signal);
+  background: var(--line-bright);
   transition: width var(--dur-xp) var(--ease-out);
 }
 
@@ -546,6 +548,13 @@ body:not(.mode-boxing) .box-only { display: none !important; }
   font-variant-numeric: tabular-nums;
 }
 
+#boxLastRt.is-empty {
+  color: var(--muted);
+  font-size: var(--text-h1);
+  line-height: var(--leading-h1);
+  letter-spacing: var(--tracking-h1);
+}
+
 .console-unit {
   font-family: var(--mono);
   font-size: var(--text-meta);
@@ -569,6 +578,25 @@ body:not(.mode-boxing) .box-only { display: none !important; }
   color: var(--muted);
   overflow-wrap: anywhere;
 }
+
+.console-xp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.xp-chip-mini {
+  padding: 3px 7px;
+  border: 1px solid var(--surface-3-hairline);
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.xp-chip-mini b { color: var(--text); font-weight: 600; }
 
 .console-controls {
   display: flex;
@@ -646,7 +674,7 @@ body:not(.mode-boxing) .box-only { display: none !important; }
 
 .bc-kpis {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   border-top: 1px solid var(--line-soft);
   border-bottom: 1px solid var(--line-soft);
 }
@@ -663,19 +691,34 @@ body:not(.mode-boxing) .box-only { display: none !important; }
   padding-left: 12px;
 }
 
+.bc-kpis .box-kpi:nth-child(3) {
+  border-left: 0;
+  padding-left: 0;
+}
+
+.bc-kpis .box-kpi:nth-child(n+3) {
+  border-top: 1px solid var(--line-soft);
+}
+
 .bc-kpis .box-kpi span {
   margin-bottom: 4px;
   font-family: var(--sans);
   font-size: var(--text-meta);
   line-height: var(--leading-meta);
   letter-spacing: var(--tracking-meta);
+  text-transform: none;
   color: var(--muted);
 }
 
 .bc-kpis .box-kpi b {
   font-family: var(--mono);
-  font-size: 18px;
+  font-size: var(--text-h2);
+  line-height: var(--leading-h2);
   font-weight: 600;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
 }
 
 .bc-telemetry .box-action-row {
@@ -687,15 +730,17 @@ body:not(.mode-boxing) .box-only { display: none !important; }
 
 .bc-telemetry .box-summary-head {
   font-family: var(--sans);
-  font-size: 12px;
+  font-size: var(--text-meta);
+  line-height: var(--leading-meta);
+  letter-spacing: var(--tracking-meta);
   font-weight: 600;
-  letter-spacing: 0;
   text-transform: none;
 }
 
 .bc-telemetry .box-summary-grid {
   font-family: var(--sans);
-  font-size: 12px;
+  font-size: var(--text-meta);
+  line-height: var(--leading-meta);
 }
 
 .bc-telemetry .box-summary-grid b {
@@ -742,12 +787,15 @@ body:not(.mode-boxing) .box-only { display: none !important; }
 
 .text-button {
   appearance: none;
+  display: inline-flex;
+  align-items: center;
   border: 0;
   background: transparent;
-  color: var(--dim);
+  color: var(--muted);
   font-family: var(--mono);
   font-size: 10px;
-  padding: 4px;
+  min-height: 44px;
+  padding: 0 8px;
   cursor: pointer;
 }
 
@@ -777,7 +825,7 @@ body.arena-open { overflow: hidden; }
   z-index: 500;
   display: flex;
   overflow: hidden;
-  background: var(--void-deep);
+  background: var(--surface-1);
   color: var(--text);
 }
 
@@ -853,7 +901,12 @@ body.arena-open { overflow: hidden; }
   font-weight: 600;
 }
 
-.arena-brand small { color: var(--muted); }
+.arena-brand small {
+  color: var(--muted);
+  font-size: var(--text-meta);
+  letter-spacing: var(--tracking-meta);
+  text-transform: none;
+}
 
 .arena-athlete {
   display: flex;
@@ -1288,9 +1341,10 @@ body.arena-open { overflow: hidden; }
 .arena-last {
   min-height: 1.4em;
   text-align: center;
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: var(--text-meta);
   line-height: var(--leading-meta);
+  letter-spacing: var(--tracking-meta);
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -1455,7 +1509,7 @@ body.arena-open { overflow: hidden; }
 }
 
 /* ---------------------------------------------------------------- arena report */
-.arena-report {
+#arenaReport {
   z-index: 700;
   padding: clamp(24px, 3vw, 48px);
 }
@@ -1484,6 +1538,15 @@ body.arena-open { overflow: hidden; }
 }
 .arena-report .report-stars { justify-content: flex-start; }
 .arena-report .report-stars img { width: 38px; height: 38px; }
+
+.arena-report .box-metric-label {
+  font-family: var(--sans);
+  font-size: var(--text-meta);
+  line-height: var(--leading-meta);
+  letter-spacing: var(--tracking-meta);
+  text-transform: none;
+  color: var(--muted);
+}
 
 .arena-report .report-hero {
   padding: clamp(18px, 2vw, 28px) clamp(22px, 2.4vw, 36px);
@@ -1539,6 +1602,16 @@ body.arena-open { overflow: hidden; }
   font-family: var(--sans);
   font-size: var(--text-body);
   line-height: var(--leading-body);
+}
+
+.arena-report-mood {
+  padding-left: var(--space-4);
+  border-left: 2px solid var(--line);
+  font-family: var(--sans);
+  font-size: var(--text-meta);
+  line-height: var(--leading-meta);
+  letter-spacing: var(--tracking-meta);
+  color: var(--muted);
 }
 
 .arena-report .ra-bar {
@@ -1608,8 +1681,13 @@ body.arena-open { overflow: hidden; }
 }
 
 .arena-report .report-buttons {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
   gap: var(--space-3);
-  padding-top: var(--space-2);
+  padding: var(--space-4) 0 var(--space-2);
+  border-top: 1px solid var(--surface-2-hairline);
+  background: var(--surface-1);
 }
 
 .arena-report .report-buttons .btn-primary,
@@ -2155,31 +2233,14 @@ body.boxing-mode .p-cam .rec { display: none; }
   color: var(--muted);
   pointer-events: none;
   opacity: 0.92;
-  animation: box-bob 3.4s ease-in-out infinite;
 }
 
 .box-mascot img,
 .box-mascot svg { display: block; width: 100%; height: auto; }
 
-.box-mascot[data-mood="happy"] { color: var(--box-good); animation-duration: 1.1s; }
-.box-mascot[data-mood="sad"] { color: var(--box-bad); animation-name: box-droop; animation-duration: 2.2s; }
-.box-mascot[data-mood="fire"] { color: var(--box-slow); animation-name: box-flicker; animation-duration: 0.7s; }
-
-/* Brand rule: no mirroring, rotation, or drop shadows on the mascot. */
-@keyframes box-bob {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-6px); }
-}
-
-@keyframes box-droop {
-  0%, 100% { transform: translateY(3px); }
-  50% { transform: translateY(5px); }
-}
-
-@keyframes box-flicker {
-  0%, 100% { transform: translateY(0) scale(1); }
-  50% { transform: translateY(-4px) scale(1.04); }
-}
+.box-mascot[data-mood="happy"] { color: var(--box-good); }
+.box-mascot[data-mood="sad"] { color: var(--box-bad); }
+.box-mascot[data-mood="fire"] { color: var(--box-slow); }
 
 /* ---------------------------------------------------------------- session report */
 .box-report {
@@ -2190,9 +2251,7 @@ body.boxing-mode .p-cam .rec { display: none; }
   overflow-x: hidden;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  background:
-    radial-gradient(900px 480px at 50% 0%, var(--bg-glow-a) 0%, transparent 62%),
-    var(--void-deep);
+  background: var(--surface-1);
   padding:
     max(22px, env(safe-area-inset-top))
     max(18px, env(safe-area-inset-right))
@@ -2269,6 +2328,12 @@ body.boxing-mode .p-cam .rec { display: none; }
 }
 
 .report-chest img { width: 40px; height: 40px; }
+.report-chest small {
+  font-size: 9px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted);
+}
 
 .report-grid {
   display: grid;
@@ -2391,6 +2456,48 @@ body.boxing-mode .p-cam .rec { display: none; }
   .box-combo-line b { font-size: 23px; }
   .box-accuracy b { font-size: 16px; }
   .box-verdict { font-size: 10px; padding: 6px 9px; }
+}
+
+/* ---------------------------------------------------------------- contrast / forced colours */
+@media (prefers-contrast: more) {
+  .arena-hud,
+  .arena-ms-strip,
+  .arena-result {
+    background: var(--ink);
+    border-color: var(--fog);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .arena-conn,
+  .arena-timer,
+  .arena-last,
+  .arena-hint,
+  .arena-ms-strip,
+  .arena-stat > span,
+  .console-hint,
+  .console-keys,
+  .console-note,
+  .console-goal-head,
+  .console-streak,
+  .bc-kpis .box-kpi span {
+    color: var(--text);
+  }
+}
+
+@media (forced-colors: active) {
+  .mode-toggle button:focus-visible,
+  .box-console button:focus-visible,
+  .box-console select:focus-visible,
+  .box-console a:focus-visible,
+  .arena button:focus-visible,
+  .arena a:focus-visible,
+  .box-report button:focus-visible,
+  .box-report a:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: var(--focus-ring-offset);
+    box-shadow: none;
+  }
 }
 
 /* ---------------------------------------------------------------- reduced motion */

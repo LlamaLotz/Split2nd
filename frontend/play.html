@@ -3,13 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<meta name="theme-color" content="#040605">
+<meta name="theme-color" content="#080A09">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Split2nd · Player</title>
-<link rel="icon" href="/static/assets/favicon.svg" type="image/svg+xml">
-<link rel="manifest" href="/static/manifest.webmanifest">
 <link rel="stylesheet" href="/static/app.css">
+<link rel="icon" href="/static/assets/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/assets/icon-1024.svg">
+<link rel="manifest" href="/static/manifest.webmanifest">
 <link rel="stylesheet" href="/static/boxing.css">
 </head>
 <body class="player-body">
@@ -33,10 +34,6 @@
     <span class="pill">LVL <b id="hudLevel">1</b></span>
     <span class="pill"><span id="hudStreak">0</span> DAY STREAK</span>
     <span class="spacer"></span>
-    <div class="mode-toggle mode-toggle-sm" role="group" aria-label="Training mode">
-      <button type="button" data-mode="racing" aria-pressed="true">Race</button>
-      <button type="button" data-mode="boxing" aria-pressed="false">Box</button>
-    </div>
     <span class="pill" id="roomPill">SOLO</span>
     <span class="pill"><i class="dot" id="connDot"></i><span id="connText">offline</span></span>
   </div>
@@ -75,6 +72,10 @@
       640p · 0 fps · 0 frames
     </div>
     <div class="p-actions" style="margin-left:auto">
+      <div class="mode-toggle mode-toggle-sm" role="group" aria-label="Training mode">
+        <button type="button" data-mode="racing" aria-pressed="true">Race</button>
+        <button type="button" data-mode="boxing" aria-pressed="false">Box</button>
+      </div>
       <button class="btn btn-sm btn-ghost" id="fullBtn">FULLSCREEN</button>
     </div>
   </div>
@@ -89,7 +90,7 @@
     </div>
     <div class="box-topstats">
       <span class="box-streak-pill" title="Day streak">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.2 2c.5 3.3-1.5 4.6-2.8 6.3-1.1 1.5-1.8 2.8-1.8 4.6 0 2.2 1.5 3.7 3.4 3.7 1.6 0 2.6-1 2.6-2.5 0-1.2-.6-1.8-1.4-2.9 2.6.8 4.6 3 4.6 5.9 0 3.2-2.6 5.7-6.1 5.7C7.3 22.8 4 20 4 15.9c0-3.6 2-6.2 4.4-8.6C10.9 4.8 12.9 3.7 13.2 2z"/></svg>
+        <img src="/static/assets/badge-streak.svg" alt="" width="24" height="24">
         <b id="boxStreak">0</b>
       </span>
       <div class="mode-toggle mode-toggle-sm" role="group" aria-label="Training mode">
@@ -115,7 +116,7 @@
       <div class="box-cue-hand" id="boxCueHand">WAITING FOR CONTROLLER</div>
     </div>
 
-    <div class="box-countdown" aria-hidden="true">
+    <div class="box-countdown hidden" aria-hidden="true">
       <div class="box-countdown-bar"><i id="boxCountBar"></i></div>
       <span id="boxCountdown">--</span>
     </div>
@@ -127,7 +128,7 @@
       <span class="box-chest hidden" id="boxChest"></span>
     </div>
 
-    <div class="box-verdict hidden" id="boxVerdict">
+    <div class="box-verdict hidden" id="boxVerdict" aria-live="polite">
       <span class="v-expected" id="vExpected">EXPECTED</span>
       <span class="v-mark" id="vMark" aria-hidden="true"></span>
       <span class="v-detected" id="vDetected">DETECTED</span>
@@ -167,7 +168,7 @@
   </div>
 </section>
 
-<div class="box-edge" id="edge" aria-hidden="true"></div>
+<div class="box-vignette" id="edge" aria-hidden="true"></div>
 
 <section class="box-report hidden" id="boxReport" aria-labelledby="reportTitle">
   <div class="box-report-inner">

@@ -12,14 +12,18 @@ const S = {
   room: null,
   config: {},
   result: null,
+  player: null,
   evidence: [],
   overlayTimers: [],
   health: null,
   connected: false,
+  arenaOpen: false,
+  arenaReportOpen: false,
   mode: loadMode(),
   stance: localStorage.getItem("s2.stance") === "southpaw" ? "southpaw" : "orthodox",
   ghostSessionId: "",
   ghosts: [],
+  dailyGoal: 20,
   box: {
     cues: [],
     actions: {},
@@ -33,6 +37,10 @@ const S = {
     scored: new Set(),
     timers: [],
     countTimer: null,
+    cuePainted: false,
+    setStartedAt: 0,
+    timerInterval: null,
+    lastTip: null,
   },
 };
 
@@ -41,8 +49,13 @@ const ws = connectWS({
   playerId: S.playerId,
   onStatus(status) {
     S.connected = status === "open";
+    const conn = $("#arenaConn");
+    if (conn) {
+      conn.innerHTML = `<i class="dot ${S.connected ? "ok" : status === "connecting" ? "warn" : "bad"}"></i>${S.connected ? "live" : status === "connecting" ? "connecting" : "offline"}`;
+    }
     if (status === "closed" || status === "error") {
       $("#hint").textContent = "Controller websocket lost - reconnecting…";
+      $("#boxHint").textContent = "Controller websocket lost - reconnecting…";
     }
   },
   onMessage: handle,
@@ -53,8 +66,7 @@ const ws = connectWS({
 /* ------------------------------------------------------------------ */
 const SVG_CHECK = `<svg class="box-icon ok" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12.5l5 5L20 6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const SVG_CROSS = `<svg class="box-icon bad" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>`;
-const SVG_STAR = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3-5.8 3 1.1-6.5L2.6 9.4l6.5-.9z"/></svg>`;
-const SVG_CHEST = `<svg class="box-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8.5C3 6.6 4.6 5 6.5 5h11C19.4 5 21 6.6 21 8.5V10H3V8.5zM3 12h8v6H6.5A3.5 3.5 0 0 1 3 14.5V12zm10 0h8v2.5a3.5 3.5 0 0 1-3.5 3.5H13v-6zm-1-5.2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg>`;
+const BADGE_CHEST = `<img class="box-badge" src="/static/assets/badge-chest.svg" alt="">`;
 
 /* ------------------------------------------------------------------ */
 /* messages                                                           */
@@ -65,6 +77,7 @@ function handle(msg) {
       S.config = msg.config || {};
       S.evidence = msg.evidence || [];
       S.players = msg.players || [];
+      S.player = msg.player || null;
       S.playerId = S.playerId || msg.player?.id || S.players[0]?.id || null;
       S.room = msg.state?.room || null;
       $("#version").textContent = msg.version || "0.1.0";
@@ -73,6 +86,7 @@ function handle(msg) {
       renderBoard(msg.leaderboard || []);
       applyState(msg.state || {});
       if (S.mode === "boxing") refreshBoard();
+      refreshDailyGoal();
       break;
 
     case "players":
@@ -108,7 +122,11 @@ function handle(msg) {
       toast(msg.message || "Fault");
       $("#hint").textContent = msg.message || "Fault";
       hideOverlay();
-      hideBoxOverlay();
+      clearArenaCue();
+      if (S.arenaOpen) {
+        setArenaIdle("READY", "CHECK THE MESSAGE");
+        $("#arenaLast").textContent = msg.message || "Fault";
+      }
       break;
 
     case "presence":
@@ -131,11 +149,21 @@ function applyState(state) {
   S.state = state;
   S.phase = state.phase || "idle";
   if (state.room) S.room = state.room;
+  if (state.player) {
+    S.player = state.player;
+    renderArenaChrome();
+  }
 
   // While a set is live the server's mode wins (a phone can start the set).
   // While idle the controller's own toggle stays authoritative.
   const mode = state.mode === "boxing" || state.mode === "racing" ? state.mode : null;
   if (mode && S.phase !== "idle" && mode !== S.mode) setMode(mode, { refresh: false });
+  if (mode === "boxing" && state.phase === "arm" && prev === "idle") {
+    resetBoxStats();
+    if (!S.arenaOpen) openArena();
+    resetArenaSession();
+    startArenaTimer({ reset: true });
+  }
 
   if (state.result) {
     if (state.result.mode === "boxing") renderBoxResultCard(state.result);
@@ -144,6 +172,13 @@ function applyState(state) {
 
   renderPhase();
   if (state.room) renderRoom();
+
+  if (S.arenaOpen && S.mode === "boxing") {
+    if (S.phase === "arm") setArenaIdle("GET SET", "HANDS UP");
+    else if (S.phase === "wait" && !S.box.cuePainted) setArenaIdle("READY", "WATCH THE LINE");
+    else if (S.phase === "response" && !S.box.cuePainted) setArenaIdle("CUE", "WAIT FOR THE CUE");
+    else if (S.phase === "idle" && !S.arenaReportOpen) setArenaIdle("READY", "PRESS START SET");
+  }
 
   if (mode === "boxing" && prev !== S.phase && S.phase === "idle" && !S.box.report) {
     $("#hint").textContent = "Boxing idle. Pick a stance and ghost, then start a set.";
@@ -173,6 +208,7 @@ function handleResult(msg) {
     if (msg.new_pb) toast("Personal best · +20 XP");
     refreshBoard();
     refreshHistory();
+    refreshDailyGoal();
   }
   if (msg.room) {
     S.room = msg.room;
@@ -197,19 +233,27 @@ function runRaceSchedule(msg) {
   // The racing payload predates the mode field. Absence of a mode means
   // racing, so a stale boxing toggle can never swallow a racing schedule.
   if (S.mode !== "racing") setMode("racing");
-  hideBoxOverlay();
   if (msg.display === "controller") runOverlay(msg);
   else $("#hint").textContent = "Phone is painting. Watch the athlete.";
 }
 
 function runBoxSchedule(msg) {
   if (S.mode !== "boxing") setMode("boxing");
+  if (!S.arenaOpen) openArena();
   hideOverlay();
+  if (msg.stance === "orthodox" || msg.stance === "southpaw") {
+    S.stance = msg.stance;
+    localStorage.setItem("s2.stance", S.stance);
+    $("#stanceSelect").value = S.stance;
+  }
   logBoxCue(msg);
+  renderArenaChrome();
   const cue = msg.cue || {};
   $("#hint").textContent = `Cue ${boxingLabel(cue.action)} · ${boxingHandLabel(cue.hand, S.stance)}`;
-  if (msg.display === "controller") runBoxOverlay(msg);
-  else $("#hint").textContent = "Phone is painting the cue. Watch the athlete.";
+  if (msg.display === "player") {
+    $("#hint").textContent = "Phone is painting the cue. The arena mirrors the state.";
+  }
+  runArenaCue(msg);
 }
 
 function isEarly(msg) {
@@ -217,16 +261,32 @@ function isEarly(msg) {
   return msg?.false_start === true || /false|early|anticip/.test(detected);
 }
 
+function boxTone(msg) {
+  if (isEarly(msg)) return { key: "false", word: "FALSE START", grade: "F" };
+  if (!msg.correct) return { key: "bad", word: "MISS", grade: "R" };
+  const quality = String(msg.quality || msg.outcome || "").toLowerCase();
+  const slow = msg.slow === true || msg.grade === "Y" || /solid|slow/.test(quality);
+  if (slow) return { key: "slow", word: "SOLID", grade: "Y" };
+  return { key: "good", word: "CLEAN", grade: "G" };
+}
+
 function handleBoxResult(msg) {
-  hideBoxOverlay();
+  clearArenaCue();
   S.result = msg;
+  if (msg.player) {
+    S.player = msg.player;
+    S.players = S.players.map((p) => (p.id === msg.player.id ? { ...p, ...msg.player } : p));
+    renderPlayers();
+    renderArenaChrome();
+  }
 
   const early = isEarly(msg);
+  const tone = boxTone(msg);
   const rt = msg.reaction_ms ?? null;
   $("#lastRt").textContent = rt == null ? "--" : fmtMs(rt);
   $("#rtUnit").textContent = "ms";
-  $("#lastGrade").textContent = msg.correct ? "CLEAN" : early ? "EARLY" : "WRONG";
-  $("#lastGrade").className = "rt-grade " + (msg.correct ? "G" : early ? "F" : "R");
+  $("#lastGrade").textContent = `${tone.grade} · ${tone.word}`;
+  $("#lastGrade").className = "rt-grade " + tone.grade;
 
   const bits = [`expected ${boxingLabel(msg.expected)}`];
   if (msg.detected != null && msg.detected !== "") bits.push(`got ${boxingLabel(msg.detected)}`);
@@ -237,11 +297,18 @@ function handleBoxResult(msg) {
   if (msg.xp?.total) bits.push(`+${msg.xp.total} xp`);
   if (msg.session) bits.push(`rep ${msg.session.index}/${msg.session.total} · ${fmtPct(msg.session.accuracy)}`);
   $("#lastMeta").textContent = bits.join(" · ");
+  $("#boxLastRt").textContent = rt == null ? "--" : fmtMs(rt);
+  $("#boxLastGrade").textContent = `${tone.grade} · ${tone.word}`;
+  $("#boxLastGrade").className = `console-grade box-${tone.key}`;
+  $("#boxLastMeta").textContent = bits.join(" · ");
   renderTip(msg.tip);
+  S.box.lastTip = msg.tip || null;
 
   recordBoxResult(msg);
+  renderArenaResult(msg, tone, early);
   refreshBoard();
   refreshHistory();
+  refreshDailyGoal();
   $("#hint").textContent = msg.correct
     ? "Clean cue. Keep the guard up."
     : early
@@ -251,14 +318,19 @@ function handleBoxResult(msg) {
 
 function renderBoxResultCard(msg) {
   if (!msg) return;
+  const tone = boxTone(msg);
   $("#lastRt").textContent = msg.reaction_ms == null ? "--" : fmtMs(msg.reaction_ms);
-  $("#lastGrade").textContent = msg.correct ? "CLEAN" : isEarly(msg) ? "EARLY" : "WRONG";
-  $("#lastGrade").className = "rt-grade " + (msg.correct ? "G" : isEarly(msg) ? "F" : "R");
+  $("#lastGrade").textContent = `${tone.grade} · ${tone.word}`;
+  $("#lastGrade").className = "rt-grade " + tone.grade;
+  $("#boxLastRt").textContent = msg.reaction_ms == null ? "--" : fmtMs(msg.reaction_ms);
+  $("#boxLastGrade").textContent = `${tone.grade} · ${tone.word}`;
+  $("#boxLastGrade").className = `console-grade box-${tone.key}`;
 }
 
 function handleSessionEnd(msg) {
   if (!msg.report) return;
-  hideBoxOverlay();
+  clearArenaCue();
+  stopArenaTimer();
   S.box.report = msg.report;
   S.box.reportMeta = {
     stars: msg.stars,
@@ -268,11 +340,13 @@ function handleSessionEnd(msg) {
   };
   if (msg.report.accuracy != null) S.box.accuracy = msg.report.accuracy;
   renderBoxPanel();
+  renderArenaReport(msg);
   $("#hint").textContent = "Set complete. Review the report, then start the next set.";
   toast(`Boxing set complete · ${fmtPct(msg.report.accuracy)}`);
   refreshBoard();
   refreshHistory();
   refreshGhosts();
+  refreshDailyGoal();
 }
 
 function logBoxCue(msg) {
@@ -478,7 +552,7 @@ function renderBoxSummary() {
   el.innerHTML = `
     <div class="box-summary-head">
       <span>Session report</span>
-      <span>${stars}${chest ? ` ${SVG_CHEST} ${esc(chest)}` : ""}</span>
+      <span>${stars}${chest ? ` ${BADGE_CHEST} ${esc(chest)}` : ""}</span>
     </div>
     <div class="box-summary-grid">
       <span>Accuracy</span><b>${fmtPct(report.accuracy)}</b>
@@ -509,39 +583,57 @@ function renderPlayers() {
 }
 
 function renderPhase() {
+  const phaseClass = {
+    ready: "live", arm: "warn", wait: "warn", response: "live", result: "live",
+  }[S.phase] || "";
   const chip = $("#phaseChip");
   chip.textContent = S.phase;
-  chip.className = "chip " + ({
-    ready: "live", arm: "warn", wait: "warn", response: "live", result: "live",
-  }[S.phase] || "");
+  chip.className = "chip " + phaseClass;
+  const boxChip = $("#boxPhaseChip");
+  if (boxChip) {
+    boxChip.textContent = S.phase;
+    boxChip.className = "chip " + phaseClass;
+  }
+  const setChip = $("#boxSetChip");
+  if (setChip) {
+    setChip.textContent = S.phase === "idle" ? "no set" : S.phase;
+    setChip.className = "chip " + (S.phase === "idle" ? "" : phaseClass);
+  }
 
   const box = S.mode === "boxing";
   const start = $("#startBtn");
-  start.disabled = S.phase !== "idle";
-  if (S.phase === "idle") {
-    start.innerHTML = box ? "START BOXING SET" : `START REP <kbd>SPACE</kbd>`;
-  } else if (box) {
-    start.innerHTML = `${{ arm: "GET SET", wait: "WAIT FOR CUE", response: "CUE", result: "RESULT" }[S.phase] || S.phase.toUpperCase()}…`;
-  } else {
-    start.innerHTML = `${(S.phase === "response" ? "GO" : S.phase).toUpperCase()}…`;
+  const boxStart = $("#boxStartBtn");
+  const idleLabel = box ? `START SET <kbd>SPACE</kbd>` : `START REP <kbd>SPACE</kbd>`;
+  const activeLabel = box
+    ? `${{ arm: "GET SET", wait: "WAIT FOR CUE", response: "CUE", result: "RESULT" }[S.phase] || S.phase.toUpperCase()}…`
+    : `${(S.phase === "response" ? "GO" : S.phase).toUpperCase()}…`;
+  if (start) {
+    start.disabled = S.phase !== "idle";
+    start.innerHTML = S.phase === "idle" ? idleLabel : activeLabel;
+  }
+  if (boxStart) {
+    boxStart.disabled = S.phase !== "idle";
+    boxStart.innerHTML = S.phase === "idle" ? idleLabel : activeLabel;
   }
 
   const stance = $("#stanceSelect");
   if (stance) stance.disabled = S.phase !== "idle";
   const ghost = $("#ghostSelect");
-  if (ghost) ghost.disabled = S.phase !== "idle" || !S.ghosts.length;
+  if (ghost) ghost.disabled = S.phase !== "idle";
+
+  updateArenaButtons();
 
   if (box) {
-    if (S.phase === "idle") {
-      $("#hint").textContent = "Pick a stance and ghost, then start a set. The phone paints; the laptop scores.";
-    } else {
-      $("#hint").textContent = S.state.msg || ({
+    const hint = S.phase === "idle"
+      ? "Pick a stance and ghost, then start a set. The laptop camera is the sensor."
+      : S.state.msg || ({
         arm: "Get set. Stand in frame.",
         wait: "Cue is being scheduled.",
         response: "Cue is live. Match it.",
         result: "Scoring the cue.",
       }[S.phase] || "");
-    }
+    $("#boxHint").textContent = hint;
+    $("#hint").textContent = hint;
     return;
   }
 
@@ -559,23 +651,40 @@ function renderPhase() {
 
 function renderBoard(rows) {
   if (!rows) return;
-  const board = $("#board");
-  if (!rows.length) {
-    board.innerHTML = `<li><span class="rank">–</span><span class="name">No scores yet</span><span class="score">--</span></li>`;
-    return;
-  }
-  board.innerHTML = rows.map((r, i) => `
-    <li class="${r.player_id === S.playerId ? "me" : ""}" title="median ${fmtMs(r.median_ms)} ms · ${r.reps} reps">
-      <span class="rank">${String(i + 1).padStart(2, "0")}</span>
-      <span class="name">${esc(r.name)}${r.demo ? '<span class="tag">demo</span>' : ""}</span>
-      <span class="score">${fmtMs(r.best_ms)}<small>ms</small></span>
-    </li>`).join("");
+  const html = rows.length
+    ? rows.map((r, i) => `
+      <li class="${r.player_id === S.playerId ? "me" : ""}" title="median ${fmtMs(r.median_ms)} ms · ${r.reps} reps">
+        <span class="rank">${String(i + 1).padStart(2, "0")}</span>
+        <span class="name">${esc(r.name)}${r.demo ? '<span class="tag">demo</span>' : ""}</span>
+        <span class="score">${fmtMs(r.best_ms)}<small>ms</small></span>
+      </li>`).join("")
+    : `<li><span class="rank">–</span><span class="name">No scores yet</span><span class="score">--</span></li>`;
+  const race = $("#board");
+  if (race) race.innerHTML = html;
+  const boxing = $("#boxBoard");
+  if (boxing) boxing.innerHTML = html;
 }
 
 async function refreshBoard() {
   try {
     renderBoard(await api(`/api/leaderboard?mode=${encodeURIComponent(S.mode)}`));
   } catch {}
+}
+
+async function refreshDailyGoal() {
+  const target = S.dailyGoal || 20;
+  try {
+    const rows = await api("/api/history?limit=200");
+    const today = new Date().toDateString();
+    const count = rows.filter((r) =>
+      r.player_id === S.playerId && r.created_at && new Date(r.created_at).toDateString() === today
+    ).length;
+    $("#consoleDaily").textContent = `${count} / ${target} reps`;
+    $("#consoleDailyBar").style.width = `${Math.min(100, (count / target) * 100)}%`;
+  } catch {
+    $("#consoleDaily").textContent = `0 / ${target} reps`;
+    $("#consoleDailyBar").style.width = "0%";
+  }
 }
 
 function renderRoom() {
@@ -629,16 +738,27 @@ function renderRoom() {
 
 function renderTip(tip) {
   if (!tip) return;
-  const refs = (tip.refs || []).map((r) => {
+  renderTipInto($("#tipBody"), tip);
+  renderTipInto($("#boxTipBody"), tip);
+}
+
+function renderTipInto(el, tip) {
+  if (!el || !tip) return;
+  const refs = (tip.refs || []).map((raw) => {
+    const r = typeof raw === "string" ? { title: raw } : raw;
     const title = r.title || r.label || r.publisher || "source";
     const meta = [r.publisher && r.publisher !== title ? r.publisher : "", r.year].filter(Boolean).join(", ");
-    return `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(title)}${meta ? ` — ${esc(meta)}` : ""}</a>`;
+    const label = `${esc(title)}${meta ? ` — ${esc(meta)}` : ""}`;
+    return r.url
+      ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${label}</a>`
+      : `<span>${label}</span>`;
   }).join("");
-  $("#tipBody").innerHTML = `
+  el.innerHTML = `
     <div class="tip-headline">${esc(tip.headline)}</div>
     <div class="tip-body">${esc(tip.body)}</div>
     ${refs ? `<div class="tip-refs">${refs}</div>` : ""}
-    <div class="disclaimer">${esc(tip.disclaimer || "")}</div>`;
+    ${tip.disclaimer ? `<div class="disclaimer">${esc(tip.disclaimer)}</div>` : ""}`;
+  el.classList.remove("hidden");
 }
 
 function renderRepHead() {
@@ -661,7 +781,30 @@ async function refreshHistory() {
     $("#repBody").innerHTML = visible.length
       ? visible.map((r) => (S.mode === "boxing" ? boxingHistoryRow(r) : racingHistoryRow(r))).join("")
       : `<tr><td colspan="6">No reps yet.</td></tr>`;
+    renderBoxRepList(visible);
   } catch {}
+}
+
+function renderBoxRepList(rows) {
+  const el = $("#boxRepList");
+  if (!el) return;
+  $("#boxRepChip").textContent = String(rows.length);
+  if (!rows.length) {
+    el.innerHTML = `<div class="box-empty">No reps yet.</div>`;
+    return;
+  }
+  el.innerHTML = rows.slice(0, 8).map((r) => {
+    const expected = boxingLabel(r.expected || r.action || r.cue?.action);
+    const rt = r.reaction_ms ?? r.rt_ms;
+    const result = r.correct === true ? "Hit" : r.correct === false ? "Miss" : "—";
+    const cls = r.correct === true ? "box-good" : r.correct === false ? "box-bad" : "";
+    return `<div class="box-rep-row">
+      <span class="br-time">${esc(fmtDate(r.created_at))}</span>
+      <b>${esc(expected)}</b>
+      <span class="br-rt">${rt == null ? "--" : `${fmtMs(rt)} ms`}</span>
+      <span class="br-result ${cls}">${result}</span>
+    </div>`;
+  }).join("");
 }
 
 function racingHistoryRow(r) {
@@ -733,7 +876,7 @@ async function refreshGhosts() {
     ).join("");
     if (S.ghosts.some((s) => s.id === S.ghostSessionId)) select.value = S.ghostSessionId;
     else { S.ghostSessionId = ""; select.value = ""; }
-    select.disabled = S.phase !== "idle" || !S.ghosts.length;
+    select.disabled = S.phase !== "idle";
   } catch {}
 }
 
@@ -748,10 +891,10 @@ function fmtConfidence(value) {
 
 function starsHtml(stars) {
   const n = clampNumber(stars, 0, 5, 0);
-  return Array.from({ length: 5 }, (_, i) => {
-    const svg = SVG_STAR.replace("<svg", `<svg class="${i < n ? "on" : ""}"`);
-    return svg;
-  }).join("");
+  const imgs = Array.from({ length: 5 }, (_, i) =>
+    `<img class="box-star ${i < n ? "" : "off"}" src="/static/assets/badge-star.svg" alt="">`
+  ).join("");
+  return `<span class="box-stars" role="img" aria-label="${n} of 5 stars">${imgs}</span>`;
 }
 
 function chestLabel(chest) {
@@ -846,6 +989,8 @@ function setMode(mode, { persist = true, refresh = true } = {}) {
   S.mode = mode;
   if (persist) saveMode(mode);
   document.body.classList.toggle("mode-boxing", mode === "boxing");
+  $("#raceConsole").classList.toggle("hidden", mode === "boxing");
+  $("#boxConsole").classList.toggle("hidden", mode !== "boxing");
 
   $$("#ctrlMode [data-mode]").forEach((btn) => {
     const on = btn.dataset.mode === mode;
@@ -858,17 +1003,30 @@ function setMode(mode, { persist = true, refresh = true } = {}) {
     chip.textContent = mode;
     chip.className = "chip " + (mode === "boxing" ? "purple" : "live");
   }
+  const boxChip = $("#boxBoardChip");
+  if (boxChip) {
+    boxChip.textContent = mode;
+    boxChip.className = "chip " + (mode === "boxing" ? "purple" : "live");
+  }
 
-  if (mode === "boxing") hideOverlay();
-  else hideBoxOverlay();
+  if (mode === "boxing") {
+    hideOverlay();
+    renderArenaChrome();
+    renderConsoleChrome();
+  } else {
+    closeArena();
+  }
+  syncCameraStreams();
 
   if (changed) toast(mode === "boxing" ? "Boxing mode" : "Racing mode");
   renderPhase();
   renderBoxPanel();
+  updateArenaButtons();
   if (refresh && changed) {
     refreshBoard();
     refreshHistory();
-    if (mode === "boxing") refreshGhosts();
+    refreshGhosts();
+    refreshDailyGoal();
   }
 }
 
@@ -919,56 +1077,451 @@ function hideOverlay() {
 }
 
 /* ------------------------------------------------------------------ */
-/* boxing cue overlay (controller as display fallback)                */
+/* boxing arena (laptop webcam + laptop screen is the demo surface)   */
 /* ------------------------------------------------------------------ */
-function runBoxOverlay(msg) {
-  const overlay = $("#boxOverlay");
-  clearBoxTimers();
-  overlay.classList.add("hidden");
+function openArena() {
+  if (!S.arenaOpen) {
+    S.arenaOpen = true;
+    document.body.classList.add("arena-open");
+    $("#arena").classList.remove("hidden");
+    const video = $("#arenaVideo");
+    if (!video.getAttribute("src")) video.src = "/video";
+    renderArenaChrome();
+    hideArenaReport();
+    setArenaIdle();
+    updateArenaButtons();
+    startArenaTimer({ reset: S.phase === "idle" });
+  }
+  updateArenaChrome();
+  syncCameraStreams();
+}
+
+function closeArena() {
+  if (!S.arenaOpen) return;
+  S.arenaOpen = false;
+  document.body.classList.remove("arena-open");
+  $("#arena").classList.add("hidden");
+  $("#arenaVideo").removeAttribute("src");
+  hideArenaReport();
+  clearArenaCue();
+  setArenaEdge("");
+  stopArenaTimer();
+  updateArenaChrome();
+  syncCameraStreams();
+}
+
+function syncCameraStreams() {
+  const race = $("#video");
+  const box = $("#boxCam");
+  const arena = $("#arenaVideo");
+  if (S.arenaOpen) {
+    race?.removeAttribute("src");
+    box?.removeAttribute("src");
+    if (arena && !arena.getAttribute("src")) arena.src = "/video";
+    return;
+  }
+  if (arena) arena.removeAttribute("src");
+  if (S.mode === "boxing") {
+    race?.removeAttribute("src");
+    if (box && !box.getAttribute("src")) box.src = "/video";
+  } else {
+    box?.removeAttribute("src");
+    if (race && !race.getAttribute("src")) race.src = "/video";
+  }
+}
+
+function toggleArena() {
+  if (S.arenaOpen) closeArena();
+  else {
+    if (S.mode !== "boxing") setMode("boxing");
+    openArena();
+  }
+}
+
+function updateArenaChrome() {
+  const btn = $("#arenaBtn");
+  if (btn) {
+    btn.textContent = S.arenaOpen ? "EXIT ARENA" : "ARENA";
+    btn.setAttribute("aria-pressed", String(S.arenaOpen));
+  }
+  document.body.classList.toggle("arena-open", S.arenaOpen);
+  updateArenaButtons();
+}
+
+function renderArenaChrome() {
+  if (!$("#arenaWho")) return;
+  const level = S.player?.level?.level ?? S.player?.level ?? 1;
+  $("#arenaWho").textContent = S.player?.name || "Athlete";
+  $("#arenaLevel").textContent = `LVL ${level}`;
+  $("#arenaStreak").textContent = S.player?.streak ?? 0;
+  $("#arenaStanceLabel").textContent = S.stance.toUpperCase();
+  $("#boArrowWrap").dataset.side = "center";
+  renderConsoleChrome();
+}
+
+function renderConsoleChrome() {
+  if (!$("#consoleName")) return;
+  const level = S.player?.level?.level ?? S.player?.level ?? 1;
+  $("#consoleName").textContent = S.player?.name || "Athlete";
+  $("#consoleLevel").textContent = `LVL ${level}`;
+  $("#consoleStreak").textContent = S.player?.streak ?? 0;
+  const chip = $("#boxBoardChip");
+  if (chip) {
+    chip.textContent = S.mode;
+    chip.className = "chip " + (S.mode === "boxing" ? "purple" : "live");
+  }
+}
+
+function updateArenaButtons() {
+  const start = $("#arenaStart");
+  if (!start) return;
+  start.disabled = S.phase !== "idle";
+  start.innerHTML = S.phase === "idle"
+    ? `START SET <kbd>SPACE</kbd>`
+    : `${{ arm: "GET SET", wait: "WAIT FOR CUE", response: "CUE LIVE", result: "RESULT" }[S.phase] || S.phase.toUpperCase()}…`;
+}
+
+function updateArenaTimer() {
+  const elapsed = S.box.setStartedAt ? performance.now() - S.box.setStartedAt : 0;
+  const total = Math.floor(elapsed / 1000);
+  const mm = String(Math.floor(total / 60)).padStart(2, "0");
+  const ss = String(total % 60).padStart(2, "0");
+  $("#arenaTimer").textContent = `${mm}:${ss}`;
+}
+
+function startArenaTimer({ reset = false } = {}) {
+  if (reset || !S.box.setStartedAt) S.box.setStartedAt = performance.now();
+  updateArenaTimer();
+  if (S.box.timerInterval) return;
+  S.box.timerInterval = setInterval(updateArenaTimer, 250);
+}
+
+function stopArenaTimer() {
+  if (S.box.timerInterval) {
+    clearInterval(S.box.timerInterval);
+    S.box.timerInterval = null;
+  }
+}
+
+function resetArenaSession() {
+  setArenaCombo(0);
+  setArenaXp(0);
+  setArenaAccuracy(null);
+  setArenaMascot("idle");
+  hideArenaVerdict();
+  hideArenaReward();
+  $("#arenaRepLabel").textContent = "SET READY";
+  $("#arenaLast").textContent = "Press START SET or Space. The laptop camera is the sensor.";
+}
+
+function setArenaIdle(word = "READY", hand = "PRESS START SET") {
+  const w = $("#boWord");
+  w.textContent = word;
+  w.classList.remove("box-good", "box-slow", "box-bad", "box-false", "long");
+  w.classList.add("idle");
+  const h = $("#boHand");
+  h.textContent = hand;
+  h.classList.remove("idle");
+  $("#boArrowWrap").classList.remove("show");
+  $$(".arena-ring").forEach((ring) => ring.classList.remove("on"));
+  $("#arenaCountdownWrap").classList.add("hidden");
+  $("#boTimerBar").classList.remove("run");
+  hideArenaVerdict();
+  hideArenaReward();
+  if (!S.box.report) $("#arenaRepLabel").textContent = "SET IDLE";
+}
+
+function runArenaCue(msg) {
+  clearArenaCue();
+  hideArenaReport();
+  hideArenaVerdict();
+  hideArenaReward();
+  setArenaEdge("");
+  setArenaIdle("READY", "WATCH THE LINE");
+
   const cue = msg.cue || {};
-  const label = cue.label || boxingLabel(cue.action);
   const windowMs = clampNumber(msg.window_ms, 400, 5000, 1400);
   const delay = clampNumber(msg.delay_ms, 0, 5000, 650);
+  const shouldAck = msg.display !== "player";
+  $("#arenaRepLabel").textContent = msg.rep != null ? `REP ${msg.rep}` : "SET LIVE";
+  $("#arenaLast").textContent = "Watch the line. The cue is coming.";
 
-  $("#boWord").textContent = label;
-  $("#boWord").classList.toggle("long", label.length > 6);
-  $("#boHand").textContent = boxingHandLabel(cue.hand, S.stance);
-  overlay.dataset.side = boxingHandSide(cue.hand, S.stance);
-  $("#boTimerBar").classList.remove("run");
-  $("#boCount").textContent = `${(windowMs / 1000).toFixed(1)}s`;
-
+  S.box.cuePainted = false;
   S.box.timers.push(setTimeout(() => {
-    overlay.classList.remove("hidden");
+    const label = cue.label || boxingLabel(cue.action);
+    const side = boxingHandSide(cue.hand, S.stance);
+    const word = $("#boWord");
+    word.textContent = label;
+    word.classList.remove("idle", "box-good", "box-slow", "box-bad", "box-false");
+    word.classList.toggle("long", label.length > 6);
+    $("#boHand").textContent = boxingHandLabel(cue.hand, S.stance) || "MATCH THE CUE";
+    $("#boArrowWrap").dataset.side = side;
+    $("#boArrowWrap").classList.add("show");
+    setArenaRings(side);
+
     const tPaint = performance.now();
-    ws.send({ type: "painted", ts: tPaint, clock: CLOCK_ID });
+    if (shouldAck) ws.send({ type: "painted", ts: tPaint, clock: CLOCK_ID });
+    S.box.cuePainted = true;
+
+    $("#arenaCountdownWrap").classList.remove("hidden");
+    $("#boCount").textContent = `${(windowMs / 1000).toFixed(1)}s`;
+    $("#arenaMsLabel").textContent = "WINDOW";
+    $("#arenaMsValue").textContent = String(Math.round(windowMs));
     const bar = $("#boTimerBar");
+    bar.classList.remove("run");
     bar.style.animationDuration = `${windowMs}ms`;
     void bar.offsetWidth;
     bar.classList.add("run");
+    $("#arenaLast").textContent = "Match the cue.";
 
     const end = performance.now() + windowMs;
     S.box.countTimer = setInterval(() => {
       const left = Math.max(0, end - performance.now());
       $("#boCount").textContent = `${(left / 1000).toFixed(1)}s`;
-      if (left <= 0) clearInterval(S.box.countTimer);
+      $("#arenaMsValue").textContent = String(Math.round(left));
+      if (left <= 0) {
+        clearInterval(S.box.countTimer);
+        S.box.countTimer = null;
+      }
     }, 100);
-
-    S.box.timers.push(setTimeout(hideBoxOverlay, windowMs + 500));
   }, delay));
 }
 
-function clearBoxTimers() {
+function clearArenaCue() {
   S.box.timers.forEach(clearTimeout);
   S.box.timers = [];
   if (S.box.countTimer) {
     clearInterval(S.box.countTimer);
     S.box.countTimer = null;
   }
+  S.box.cuePainted = false;
+  $("#boTimerBar").classList.remove("run");
+  $("#arenaCountdownWrap").classList.add("hidden");
+  $("#boArrowWrap").classList.remove("show");
+  $$(".arena-ring").forEach((ring) => ring.classList.remove("on"));
 }
 
-function hideBoxOverlay() {
-  clearBoxTimers();
-  $("#boxOverlay").classList.add("hidden");
+function setArenaRings(side) {
+  const active = side === "left" || side === "right" ? side : "center";
+  $$(".arena-ring").forEach((ring) => {
+    ring.classList.toggle("on", ring.dataset.side === active);
+  });
+}
+
+function renderArenaResult(msg, tone, early) {
+  if (!$("#arena")) return;
+  const cue = findCue(msg.rep);
+  const expected = boxingLabel(msg.expected || cue?.action);
+  const detected = early
+    ? "EARLY"
+    : msg.detected
+      ? boxingLabel(msg.detected)
+      : msg.correct
+        ? expected
+        : "—";
+
+  const word = $("#boWord");
+  word.textContent = expected;
+  word.classList.remove("idle", "box-good", "box-slow", "box-bad", "box-false");
+  word.classList.toggle("long", expected.length > 6);
+  word.classList.add(`box-${tone.key}`);
+  $("#boHand").textContent = cue?.hand ? boxingHandLabel(cue.hand, S.stance) : "MATCH THE CUE";
+  if (cue?.hand) setArenaRings(boxingHandSide(cue.hand, S.stance));
+
+  $("#arenaExpected").textContent = `EXPECTED ${expected}`;
+  $("#arenaDetected").textContent = early ? tone.word : `DETECTED ${detected}`;
+  $("#arenaMark").innerHTML = msg.correct ? SVG_CHECK : SVG_CROSS;
+  $("#arenaRt").textContent = msg.reaction_ms == null ? "--" : fmtMs(msg.reaction_ms);
+  $("#arenaGrade").textContent = `${tone.grade} · ${tone.word}`;
+  $("#arenaGrade").className = `arena-result-grade box-${tone.key}`;
+  $("#arenaGhost").textContent = msg.ghost_delta == null
+    ? "No ghost"
+    : `${fmtSigned(msg.ghost_delta)} vs ${msg.ghost?.name || "ghost"}`;
+  const result = $("#arenaResult");
+  result.className = `arena-result box-${tone.key}`;
+  result.classList.remove("hidden");
+  $("#arena").dataset.tone = tone.key;
+  $("#arenaMsLabel").textContent = "RT";
+  $("#arenaMsValue").textContent = msg.reaction_ms == null ? "--" : fmtMs(msg.reaction_ms);
+
+  setArenaCombo(msg.combo != null ? Number(msg.combo) : (msg.correct ? S.box.combo + 1 : 0));
+  S.box.xp += Number(msg.xp?.total || 0);
+  setArenaXp(S.box.xp);
+  if (msg.session?.accuracy != null) S.box.accuracy = msg.session.accuracy;
+  setArenaAccuracy(S.box.accuracy);
+  setArenaReward(msg.stars, msg.chest);
+  setArenaMascot(msg.mascot || arenaMascotForResult(tone, msg));
+  if (msg.session) $("#arenaRepLabel").textContent = `REP ${msg.session.index}/${msg.session.total}`;
+
+  const bits = [];
+  if (msg.execution_ms != null) bits.push(`exec ${fmtMs(msg.execution_ms)} ms`);
+  if (msg.xp?.total) bits.push(`+${msg.xp.total} XP`);
+  if (msg.session?.accuracy != null) bits.push(fmtPct(msg.session.accuracy));
+  if (msg.combo != null) bits.push(`combo ${msg.combo}`);
+  $("#arenaLast").textContent = bits.join(" · ") || "Cue scored.";
+  if (S.arenaOpen) flashArenaEdge(tone.key);
+}
+
+function arenaMascotForResult(tone, msg) {
+  if (tone.key === "false" || tone.key === "bad") return "sad";
+  if (msg.xp?.pb) return "fire";
+  if (Number(S.player?.streak) >= 3) return "fire";
+  if (Number(msg.combo) >= 5) return "fire";
+  return "happy";
+}
+
+function setArenaMascot(state) {
+  const mood = ["idle", "happy", "sad", "fire"].includes(state) ? state : "idle";
+  const wrap = $("#arenaMascot");
+  if (!wrap) return;
+  wrap.dataset.mood = mood;
+  const img = $("#arenaMascotImg");
+  if (img) img.src = `/static/assets/mascot-${mood}.svg`;
+}
+
+function setArenaCombo(value) {
+  const n = Math.max(0, Number(value) || 0);
+  S.box.combo = n;
+  $("#arenaCombo").textContent = String(n);
+  $$("#arenaComboDots i").forEach((el, i) => {
+    el.classList.toggle("on", i < Math.min(n, 5));
+  });
+}
+
+function setArenaXp(value) {
+  const n = Math.max(0, Number(value) || 0);
+  S.box.xp = n;
+  $("#arenaXp").textContent = `+${n}`;
+  $("#arenaXpBar").style.width = `${Math.min(100, n)}%`;
+}
+
+function setArenaAccuracy(value) {
+  S.box.accuracy = value;
+  $("#arenaAcc").textContent = fmtPct(value);
+}
+
+function setArenaReward(stars, chest) {
+  const reward = $("#arenaReward");
+  let any = false;
+  if (stars !== null && stars !== undefined) {
+    $("#arenaStars").innerHTML = starsHtml(stars);
+    any = true;
+  } else {
+    $("#arenaStars").innerHTML = "";
+  }
+  const label = chestLabel(chest);
+  if (label) {
+    $("#arenaChest").innerHTML = `${BADGE_CHEST}<span>${esc(label)}</span>`;
+    $("#arenaChest").classList.remove("hidden");
+    any = true;
+  } else {
+    $("#arenaChest").innerHTML = "";
+    $("#arenaChest").classList.add("hidden");
+  }
+  reward.classList.remove("hidden");
+  reward.classList.toggle("is-empty", !any);
+}
+
+function hideArenaVerdict() {
+  const result = $("#arenaResult");
+  if (result) result.className = "arena-result hidden";
+  const mark = $("#arenaMark");
+  if (mark) mark.innerHTML = "";
+  const arena = $("#arena");
+  if (arena) arena.dataset.tone = "";
+  $("#arenaMsLabel").textContent = "WINDOW";
+  $("#arenaMsValue").textContent = "--";
+}
+
+function hideArenaReward() {
+  const reward = $("#arenaReward");
+  reward.classList.add("is-empty");
+  reward.classList.remove("hidden");
+  $("#arenaStars").innerHTML = "";
+  $("#arenaChest").innerHTML = "";
+}
+
+function flashArenaEdge(tone) {
+  const el = $("#arenaEdge");
+  if (!el || !tone) return;
+  el.className = "box-vignette arena-edge";
+  void el.offsetWidth;
+  el.classList.add(`box-vignette--${tone}`, "is-flashing");
+  clearTimeout(flashArenaEdge._t);
+  flashArenaEdge._t = setTimeout(() => {
+    el.className = "box-vignette arena-edge";
+  }, 320);
+}
+
+function setArenaEdge(tone) {
+  const el = $("#arenaEdge");
+  if (!el) return;
+  clearTimeout(flashArenaEdge._t);
+  el.className = tone ? `box-vignette arena-edge box-vignette--${tone}` : "box-vignette arena-edge";
+}
+
+function renderArenaReport(msg) {
+  const report = msg.report || {};
+  $("#arenaReportAccuracy").textContent = fmtPct(report.accuracy);
+  const starCount = clampNumber(msg.stars, 0, 5, 0);
+  $("#arenaReportStars").innerHTML = starsHtml(msg.stars);
+  $("#arenaReportStars").setAttribute("role", "img");
+  $("#arenaReportStars").setAttribute("aria-label", `${starCount} of 5 stars`);
+  const chest = chestLabel(msg.chest);
+  $("#arenaReportChest").innerHTML = chest ? `${BADGE_CHEST}<span>${esc(chest)}</span>` : "";
+  $("#arenaReportBias").textContent = formatLeadRear(report.lead_rear);
+  $("#arenaReportFatigue").textContent = formatFatigue(report.fatigue);
+  $("#arenaReportGuard").textContent = report.guard_drops ?? "--";
+  $("#arenaReportBreaks").textContent = report.combo_breaks ?? "--";
+
+  const per = Array.isArray(report.per_action) ? report.per_action : [];
+  $("#arenaReportActions").innerHTML = per.length
+    ? per.map((a) => {
+      const pct = Number(a.accuracy);
+      const width = Number.isFinite(pct) ? clampNumber(pct > 0 && pct <= 1 ? pct * 100 : pct, 0, 100, 0) : 0;
+      return `<div class="report-action-row">
+        <span class="ra-name">${esc(boxingLabel(a.action))}</span>
+        <span class="ra-bar"><i style="width:${width.toFixed(1)}%"></i></span>
+        <span class="ra-acc">${fmtPct(a.accuracy)}</span>
+        <span class="ra-rt">${a.median_rt != null ? `${fmtMs(a.median_rt)} ms` : "--"}</span>
+      </div>`;
+    }).join("")
+    : `<div class="box-empty">No per-action data.</div>`;
+
+  const tipEl = $("#arenaReportTip");
+  if (S.box.lastTip) {
+    renderTipInto(tipEl, S.box.lastTip);
+  } else {
+    tipEl.classList.add("hidden");
+    tipEl.innerHTML = "";
+  }
+
+  const ghost = ghostLabel(msg.ghost);
+  const ghostEl = $("#arenaReportGhost");
+  ghostEl.classList.toggle("hidden", !ghost);
+  ghostEl.innerHTML = ghost ? `<span>Ghost</span><b>${esc(ghost)}</b>` : "";
+
+  setArenaMascot(msg.mascot || (starCount < 4 ? "sad" : "happy"));
+  if (!S.arenaOpen) return;
+  S.arenaReportOpen = true;
+  const el = $("#arenaReport");
+  el.classList.remove("hidden");
+  el.scrollTop = 0;
+}
+
+function hideArenaReport() {
+  S.arenaReportOpen = false;
+  $("#arenaReport").classList.add("hidden");
+  if (S.arenaOpen && S.phase === "idle") setArenaIdle("READY", "PRESS START SET");
+}
+
+function toggleFullscreen() {
+  const root = document.documentElement;
+  if (document.fullscreenElement) {
+    document.exitFullscreen?.().catch(() => {});
+  } else {
+    root.requestFullscreen?.().catch(() => toast("Fullscreen is unavailable in this browser"));
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -980,24 +1533,44 @@ function activePlayerForStart() {
   return S.playerId;
 }
 
+function startBoxingSet() {
+  const pid = activePlayerForStart();
+  if (!pid) return toast("Add an athlete first");
+  if (S.mode !== "boxing") setMode("boxing");
+  openArena();
+
+  if (S.phase !== "idle") {
+    toast("Set already running");
+    return;
+  }
+
+  resetBoxStats();
+  resetArenaSession();
+  renderArenaChrome();
+  startArenaTimer({ reset: true });
+  const payload = {
+    cmd: "start",
+    player_id: pid,
+    mode: "boxing",
+    stance: S.stance,
+    source: "local",
+  };
+  if (S.ghostSessionId) payload.ghost_session_id = S.ghostSessionId;
+  const sent = ws.send(payload);
+  $("#hint").textContent = sent
+    ? "Set queued. Stand in frame and keep your guard up."
+    : "Controller is offline - reconnecting…";
+  $("#arenaLast").textContent = sent
+    ? "Set queued. Stand in frame. Watch the line."
+    : "Controller is offline. Reconnecting…";
+}
+
 $("#startBtn").onclick = () => {
   const pid = activePlayerForStart();
   if (!pid) return toast("Add an athlete first");
 
   if (S.mode === "boxing") {
-    if (S.phase !== "idle") return;
-    resetBoxStats();
-    const payload = {
-      cmd: "start",
-      player_id: pid,
-      mode: "boxing",
-      stance: S.stance,
-    };
-    if (S.ghostSessionId) payload.ghost_session_id = S.ghostSessionId;
-    const sent = ws.send(payload);
-    $("#hint").textContent = sent
-      ? "Set queued. Stand in frame and keep your guard up."
-      : "Controller is offline - reconnecting…";
+    startBoxingSet();
     return;
   }
 
@@ -1010,6 +1583,20 @@ $("#startBtn").onclick = () => {
   });
 };
 
+$("#boxStartBtn").onclick = startBoxingSet;
+$("#arenaBtn").onclick = toggleArena;
+$("#arenaStart").onclick = startBoxingSet;
+$("#arenaExit").onclick = closeArena;
+$("#arenaFull").onclick = toggleFullscreen;
+$("#arenaReportNext").onclick = () => {
+  hideArenaReport();
+  startBoxingSet();
+};
+$("#arenaReportClose").onclick = () => {
+  hideArenaReport();
+  closeArena();
+};
+
 $("#ctrlMode").onclick = (e) => {
   const btn = e.target.closest("[data-mode]");
   if (btn) setMode(btn.dataset.mode);
@@ -1019,6 +1606,7 @@ $("#stanceSelect").onchange = (e) => {
   S.stance = e.target.value === "southpaw" ? "southpaw" : "orthodox";
   localStorage.setItem("s2.stance", S.stance);
   renderBoxPanel();
+  renderArenaChrome();
 };
 
 $("#ghostSelect").onchange = (e) => {
@@ -1027,6 +1615,7 @@ $("#ghostSelect").onchange = (e) => {
 
 $("#clearCueLog").onclick = () => {
   resetBoxStats();
+  if (S.arenaOpen) resetArenaSession();
   toast("Boxing log cleared");
 };
 
@@ -1040,6 +1629,7 @@ function resetBoxStats() {
   S.box.accuracy = null;
   S.box.report = null;
   S.box.reportMeta = null;
+  S.box.lastTip = null;
   S.box.scored.clear();
   renderBoxPanel();
 }
@@ -1047,8 +1637,11 @@ function resetBoxStats() {
 $("#playerSelect").onchange = (e) => {
   S.playerId = e.target.value;
   localStorage.setItem("s2.player", S.playerId);
+  S.player = S.players.find((p) => p.id === S.playerId) || S.player;
   ws.send({ cmd: "select", player_id: S.playerId });
   refreshBoard();
+  refreshDailyGoal();
+  renderArenaChrome();
 };
 
 $("#addPlayer").onclick = async () => {
@@ -1112,12 +1705,51 @@ $("#seedBtn").onclick = async () => {
   } catch (err) { toast(err.message); }
 };
 
+function isTypingTarget(el) {
+  return !!el && (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || el.isContentEditable);
+}
+
 document.addEventListener("keydown", (e) => {
-  if (e.code !== "Space") return;
-  const tag = document.activeElement?.tagName;
-  if (["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(tag)) return;
-  e.preventDefault();
-  $("#startBtn").click();
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (isTypingTarget(document.activeElement)) return;
+
+  if (e.code === "Escape") {
+    if (S.arenaReportOpen) {
+      e.preventDefault();
+      hideArenaReport();
+      return;
+    }
+    if (S.arenaOpen) {
+      e.preventDefault();
+      closeArena();
+    }
+    return;
+  }
+
+  if (e.repeat) return;
+
+  if (e.code === "KeyF") {
+    e.preventDefault();
+    toggleFullscreen();
+    return;
+  }
+  if (e.code === "KeyB") {
+    e.preventDefault();
+    setMode("boxing");
+    openArena();
+    return;
+  }
+  if (e.code === "KeyR") {
+    e.preventDefault();
+    setMode("racing");
+    closeArena();
+    return;
+  }
+  if (e.code === "Space") {
+    e.preventDefault();
+    if (S.mode === "boxing") startBoxingSet();
+    else $("#startBtn").click();
+  }
 });
 
 /* ------------------------------------------------------------------ */
@@ -1145,16 +1777,25 @@ async function poll() {
     $("#clientText").textContent = String(clients.length);
     $("#dotClients").className = "dot " + (clients.length ? "ok" : "");
 
-    $("#camChip").textContent = vis.has_preview ? "live" : "no signal";
-    $("#camChip").className = "chip " + (vis.has_preview ? "live" : "warn");
-    $("#nosignal").style.display = vis.has_preview ? "none" : "grid";
-    $("#camMeta").textContent = [
+    const camText = vis.has_preview ? "live" : "no signal";
+    const camClass = "chip " + (vis.has_preview ? "live" : "warn");
+    for (const chip of ["#camChip", "#boxCamChip"]) {
+      const el = $(chip);
+      if (el) { el.textContent = camText; el.className = camClass; }
+    }
+    for (const overlay of ["#nosignal", "#boxNosignal"]) {
+      const el = $(overlay);
+      if (el) el.style.display = vis.has_preview ? "none" : "grid";
+    }
+    const meta = [
       `${vis.fps || 0} fps`,
       `${vis.proc_ms || 0} ms/frame`,
       vis.pose_ok ? "pose" : "motion",
       `${vis.frames || 0} frames`,
       vis.remote_active ? "phone" : (vis.local_ok ? "laptop" : "fake"),
     ].join(" · ");
+    $("#camMeta").textContent = meta;
+    $("#boxCamMeta").textContent = meta;
   } catch {
     $("#dotRig").className = "dot bad";
     $("#dotVision").className = "dot bad";
@@ -1171,5 +1812,6 @@ renderBoxPanel();
 refreshBoard();
 refreshHistory();
 refreshGhosts();
+refreshDailyGoal();
 poll();
 setInterval(poll, 2500);

@@ -58,8 +58,7 @@ const BOX_GATE_COPY =
 
 const SVG_CHECK = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12.5l5 5L20 6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const SVG_CROSS = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>`;
-const SVG_STAR = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3-5.8 3 1.1-6.5L2.6 9.4l6.5-.9z"/></svg>`;
-const SVG_CHEST = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8.5C3 6.6 4.6 5 6.5 5h11C19.4 5 21 6.6 21 8.5V10H3V8.5zM3 12h8v6H6.5A3.5 3.5 0 0 1 3 14.5V12zm10 0h8v2.5a3.5 3.5 0 0 1-3.5 3.5H13v-6zm-1-5.2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg>`;
+const BADGE_CHEST = `<img class="box-badge" src="/static/assets/badge-chest.svg" alt="">`;
 
 /* ------------------------------------------------------------------ */
 /* boot                                                               */
@@ -131,6 +130,9 @@ function handle(msg) {
       break;
     case "schedule":
       if (msg.mode === "boxing") {
+        // Optional: a backend may echo the stance so lead/rear cues resolve
+        // correctly on a phone that did not start the set itself.
+        adoptStance(msg.stance);
         applyMode("boxing");
         runBoxCue(msg);
       } else {
@@ -216,8 +218,14 @@ function applyMode(mode, { persist = true } = {}) {
 
   if (S.cameraOn) {
     $("#boxApp").classList.toggle("hidden", mode !== "boxing");
-    if (mode === "boxing") boxIdle("READY", "WAITING FOR CONTROLLER");
+    if (mode === "boxing" && changed) boxIdle("READY", "WAITING FOR CONTROLLER");
   }
+}
+
+function adoptStance(value) {
+  if (value !== "orthodox" && value !== "southpaw") return;
+  S.stance = value;
+  localStorage.setItem("s2.stance", value);
 }
 
 $$(".mode-toggle [data-mode]").forEach((btn) => {
@@ -360,6 +368,7 @@ function onState(msg) {
   const prev = S.phase;
   S.phase = msg.phase || "idle";
   S.state = msg;
+  adoptStance(msg.stance);
   if (msg.room) { S.room = msg.room; renderRoomPill(); }
   if (msg.player) { S.player = msg.player; renderHud(msg.player); }
   if (typeof msg.player_id === "string") S.activePlayerId = msg.player_id;
@@ -486,6 +495,7 @@ function runBoxCue(msg) {
   hideReward();
   setEdge("");
   boxIdle("READY", "WATCH THE LINE");
+  $("#boxLast").textContent = msg.rep ? `Rep ${msg.rep} · watch the line.` : "Watch the line.";
 
   S.box.timers.push(setTimeout(paintBoxCue, delay));
 }
@@ -498,7 +508,7 @@ function paintBoxCue() {
   const hand = boxingHandLabel(cue.hand, S.stance);
   const word = $("#boxCueWord");
   word.textContent = label;
-  word.classList.remove("idle", "correct", "wrong", "early");
+  word.classList.remove("idle", "box-good", "box-slow", "box-bad", "box-false");
   word.classList.toggle("long", label.length > 6);
 
   const handEl = $("#boxCueHand");
@@ -515,6 +525,8 @@ function paintBoxCue() {
   ws?.send({ type: "painted", ts: tPaint, clock: CLOCK_ID });
   S.box.cuePainted = true;
 
+  $(".box-countdown").classList.remove("hidden");
+  $("#boxLast").textContent = "Match the cue.";
   const bar = $("#boxCountBar");
   bar.classList.remove("run");
   bar.style.animationDuration = `${S.box.windowMs}ms`;
@@ -529,6 +541,24 @@ function setRings(side) {
   $$(".box-ring").forEach((ring) => {
     ring.classList.toggle("on", ring.dataset.side === active);
   });
+}
+
+function boxTone(msg) {
+  const early = isEarly(msg);
+  const quality = String(msg.quality || msg.outcome || "").toLowerCase();
+  const slow = msg.slow === true || msg.grade === "Y" || /solid|slow/.test(quality);
+  if (early) return { key: "false", word: "FALSE START" };
+  if (!msg.correct) return { key: "bad", word: "MISS" };
+  if (slow) return { key: "slow", word: "SOLID" };
+  return { key: "good", word: "CLEAN" };
+}
+
+function mascotForResult(tone, msg) {
+  if (tone.key === "false" || tone.key === "bad") return "sad";
+  if (msg.xp?.pb) return "fire";
+  if (Number(S.player?.streak) >= 3) return "fire";
+  if (Number(msg.combo) >= 5) return "fire";
+  return "happy";
 }
 
 function startCountdown(ms) {
@@ -549,15 +579,16 @@ function startCountdown(ms) {
 function boxIdle(word, hand) {
   const w = $("#boxCueWord");
   w.textContent = word || "READY";
-  w.classList.remove("correct", "wrong", "early", "long");
+  w.classList.remove("box-good", "box-slow", "box-bad", "box-false", "long");
   w.classList.add("idle");
   const h = $("#boxCueHand");
   h.textContent = hand || "";
   h.classList.add("idle");
   $("#boxArrowWrap").classList.remove("show");
   $$(".box-ring").forEach((ring) => ring.classList.remove("on"));
-  $("#boxCountdown").textContent = "--";
+  $(".box-countdown").classList.add("hidden");
   $("#boxCountBar").classList.remove("run");
+  if (S.box.mascotState !== "idle") setMascot("idle");
 }
 
 function clearBoxCue() {
@@ -570,6 +601,7 @@ function clearBoxCue() {
   S.box.cue = null;
   S.box.cuePainted = false;
   $("#boxCountBar").classList.remove("run");
+  $(".box-countdown").classList.add("hidden");
   $("#boxArrowWrap").classList.remove("show");
   $$(".box-ring").forEach((ring) => ring.classList.remove("on"));
 }
@@ -579,10 +611,11 @@ function onBoxResult(msg) {
   if (S.box.reportOpen) hideBoxReport();
 
   const early = isEarly(msg);
+  const tone = boxTone(msg);
   const cue = S.box.cue || {};
   const expected = boxingLabel(msg.expected || cue.action);
   const detected = early
-    ? "EARLY"
+    ? tone.word
     : msg.detected
       ? boxingLabel(msg.detected)
       : msg.correct
@@ -594,18 +627,19 @@ function onBoxResult(msg) {
     S.box.countTimer = null;
   }
   $("#boxCountBar").classList.remove("run");
+  $(".box-countdown").classList.add("hidden");
 
   const word = $("#boxCueWord");
   word.textContent = expected;
-  word.classList.remove("idle", "wrong", "early", "correct");
+  word.classList.remove("idle", "box-good", "box-slow", "box-bad", "box-false");
   word.classList.toggle("long", expected.length > 6);
-  word.classList.add(msg.correct ? "correct" : early ? "early" : "wrong");
+  word.classList.add(`box-${tone.key}`);
 
   const handEl = $("#boxCueHand");
   handEl.textContent = cue.hand ? boxingHandLabel(cue.hand, S.stance) : "MATCH THE CUE";
   handEl.classList.remove("idle");
 
-  flashEdge(msg.correct ? "ok" : early ? "early" : "bad");
+  flashEdge(tone.key);
   navigator.vibrate?.(msg.correct ? 55 : [40, 50, 40]);
 
   S.box.combo = msg.combo != null ? Number(msg.combo) : (msg.correct ? S.box.combo + 1 : 0);
@@ -615,14 +649,15 @@ function onBoxResult(msg) {
   setCombo(S.box.combo);
   setXp(S.box.xp);
   setAccuracy(S.box.accuracy);
-  setMascot(msg.mascot);
+  if (msg.player) { S.player = msg.player; renderHud(msg.player); }
+  setMascot(msg.mascot || mascotForResult(tone, msg));
   renderReward(msg.stars, msg.chest);
 
   $("#vExpected").textContent = `EXPECTED ${expected}`;
-  $("#vDetected").textContent = `DETECTED ${detected}`;
+  $("#vDetected").textContent = early ? tone.word : `${tone.word} · ${detected}`;
   $("#vMark").innerHTML = msg.correct ? SVG_CHECK : SVG_CROSS;
   const verdict = $("#boxVerdict");
-  verdict.className = `box-verdict ${msg.correct ? "ok" : early ? "early" : "bad"}`;
+  verdict.className = `box-verdict box-${tone.key}`;
   verdict.classList.remove("hidden");
 
   const bits = [];
@@ -643,24 +678,23 @@ function isEarly(msg) {
   return msg?.false_start === true || /false|early|anticip/.test(detected);
 }
 
-function flashEdge(kind) {
-  if (!kind) return;
+function flashEdge(tone) {
+  if (!tone) return;
   const el = $("#edge");
   clearTimeout(S.box.edgeTimer);
-  el.className = "box-edge";
+  el.className = "box-vignette";
   void el.offsetWidth;
-  el.classList.add("show", kind);
+  el.classList.add(`box-vignette--${tone}`, "is-flashing");
   S.box.edgeTimer = setTimeout(() => {
-    el.classList.remove("show", kind);
-    el.className = "box-edge";
+    el.className = "box-vignette";
   }, 320);
 }
 
-function setEdge(kind) {
+function setEdge(tone) {
   clearTimeout(S.box.edgeTimer);
   S.box.edgeTimer = null;
   const el = $("#edge");
-  el.className = kind ? `box-edge show ${kind}` : "box-edge";
+  el.className = tone ? `box-vignette box-vignette--${tone}` : "box-vignette";
 }
 
 function setCombo(n) {
@@ -709,15 +743,20 @@ function renderReward(stars, chest) {
   let any = false;
 
   if (stars !== null && stars !== undefined) {
+    const n = clampNumber(stars, 0, 5, 0);
     starWrap.innerHTML = starsHtml(stars);
+    starWrap.setAttribute("role", "img");
+    starWrap.setAttribute("aria-label", `${n} of 5 stars`);
     any = true;
   } else {
     starWrap.innerHTML = "";
+    starWrap.removeAttribute("role");
+    starWrap.removeAttribute("aria-label");
   }
 
   const chestText = chestLabel(chest);
   if (chestText) {
-    chestEl.innerHTML = `${SVG_CHEST}<span>${esc(chestText)}</span>`;
+    chestEl.innerHTML = `${BADGE_CHEST}<span>${esc(chestText)}</span>`;
     chestEl.classList.remove("hidden");
     any = true;
   } else {
@@ -744,12 +783,16 @@ function onSessionEnd(msg) {
   S.box.report = report;
   S.box.reportOpen = true;
   clearBoxCue();
-  setMascot(msg.mascot || "happy");
+  const starCount = Number(msg.stars);
+  setMascot(msg.mascot || (Number.isFinite(starCount) && starCount < 4 ? "sad" : "happy"));
 
   $("#reportAccuracy").textContent = fmtPct(report.accuracy);
+  const reportStarCount = clampNumber(msg.stars, 0, 5, 0);
   $("#reportStars").innerHTML = starsHtml(msg.stars);
+  $("#reportStars").setAttribute("role", "img");
+  $("#reportStars").setAttribute("aria-label", `${reportStarCount} of 5 stars`);
   const chest = chestLabel(msg.chest);
-  $("#reportChest").innerHTML = chest ? `${SVG_CHEST}<span>${esc(chest)}</span>` : "";
+  $("#reportChest").innerHTML = chest ? `${BADGE_CHEST}<span>${esc(chest)}</span>` : "";
   $("#reportBias").textContent = formatLeadRear(report.lead_rear);
   $("#reportFatigue").textContent = formatFatigue(report.fatigue);
   $("#reportGuard").textContent = report.guard_drops ?? "--";
@@ -988,7 +1031,7 @@ function setMascot(state) {
 function starsHtml(stars) {
   const n = clampNumber(stars, 0, 5, 0);
   return Array.from({ length: 5 }, (_, i) =>
-    SVG_STAR.replace("<svg", `<svg class="${i < n ? "on" : ""}"`)
+    `<img class="box-star ${i < n ? "" : "off"}" src="/static/assets/badge-star.svg" alt="">`
   ).join("");
 }
 

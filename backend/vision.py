@@ -187,6 +187,11 @@ class VisionEngine:
                 continue
             t = time.perf_counter()
             self.local_seen_at = t
+            # In auto mode the phone is the primary sensor. Do not let the
+            # laptop camera compete for the single processing slot while the
+            # phone is streaming; the local path resumes after 1 s of silence.
+            if config.VISION_MODE == "auto" and self.remote_active():
+                continue
             self._put_latest(("local", frame, t, "backend"))
         cap.release()
 

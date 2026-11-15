@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc" style="color:#F1F5F0;--badge-bg:#111513;--badge-flame:#FFC857;--badge-hot:#FF5B5B">
+  <title id="title">Split2nd streak badge</title>
+  <desc id="desc">A flame medal for consecutive training days.</desc>
+  <defs>
+    <filter id="badge-glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="5"/>
+    </filter>
+  </defs>
+  <style>
+    .rim { fill: var(--badge-bg, #111513); stroke: currentColor; stroke-width: 3; }
+    .track { fill: none; stroke: currentColor; stroke-width: 2; opacity: .28; }
+    .glow { fill: var(--badge-flame, #FFC857); opacity: .35; filter: url(#badge-glow); }
+    .flame { fill: var(--badge-flame, #FFC857); stroke: #080A09; stroke-width: 3; stroke-linejoin: round; }
+    .hot { fill: var(--badge-hot, #FF5B5B); }
+    .tick { stroke: currentColor; stroke-width: 3; stroke-linecap: round; opacity: .55; }
+  </style>
+  <circle class="rim" cx="64" cy="64" r="54"/>
+  <circle class="track" cx="64" cy="64" r="45" stroke-dasharray="3 7"/>
+  <ellipse class="glow" cx="64" cy="67" rx="26" ry="29"/>
+  <path class="flame" d="M64 22 C55 38 43 48 43 65 C43 82 52 94 64 94 C76 94 85 82 85 65 C85 48 73 38 64 22 Z"/>
+  <path class="hot" d="M64 51 C58 60 54 66 54 72 C54 80 58 85 64 85 C70 85 74 80 74 72 C74 66 70 60 64 51 Z"/>
+  <path class="tick" d="M42 104 H54 M60 104 H68 M74 104 H86"/>
+</svg>

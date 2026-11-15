@@ -1,0 +1,144 @@
+/* ==========================================================================
+   Split2nd design tokens
+   --------------------------------------------------------------------------
+   PROVISIONAL PALETTE. The user will send the final palette.
+   This file is the only palette swap point: edit the eleven values in the
+   "palette" block, then adjust derived tints only if the new hues demand it.
+   Everything below is consumed by app.css and by the boxing UI.
+   ========================================================================== */
+
+:root {
+  color-scheme: dark;
+
+  /* -------------------------------------------------------------- palette */
+  --ink: #080A09;
+  --carbon: #111513;
+  --graphite: #1A1F1C;
+  --line: #2A322C;
+  --chalk: #F1F5F0;
+  --fog: #98A39A;
+  --signal: #3DFFA2;
+  --amber: #FFC857;
+  --red: #FF5B5B;
+  --violet: #B18CFF;
+  --ice: #6EE7FF;
+
+  /* ----------------------------------------------------------------- type */
+  --mono: "SF Mono", "Cascadia Code", "Roboto Mono", ui-monospace, Menlo, Consolas, monospace;
+  --sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+
+  /* --------------------------------------------------------------- radius */
+  --radius: 14px;
+  --radius-xs: 5px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  /* -------------------------------------------------------------- spacing */
+  --space-1: 4px;
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 10px;
+  --space-5: 12px;
+  --space-6: 14px;
+  --space-7: 18px;
+  --space-8: 22px;
+  --space-9: 30px;
+
+  /* --------------------------------------------------------------- motion */
+  --motion-lights: 420ms;      /* light cadence, mirrored by LIGHT_INTERVAL_MS */
+  --motion-snap: 120ms;        /* result card / grade snap */
+  --motion-xp: 400ms;          /* XP bar / chip fill */
+  --motion-fast: 120ms;        /* hover and button feedback */
+  --motion-light-fade: 40ms;   /* a single lamp turning on/off */
+  --motion-go: 60ms;           /* GO text reveal */
+  --motion-toast: 180ms;       /* toast in/out */
+  --motion-blink: 1.4s;        /* camera recording dot */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-snap: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* ------------------------------------------------------------- surfaces */
+  --bg: var(--ink);
+  --panel: var(--carbon);
+  --panel-2: var(--graphite);
+  --panel2: var(--panel-2);
+  --panel-hover: color-mix(in srgb, var(--carbon) 72%, var(--line));
+  --well: color-mix(in srgb, var(--ink) 82%, var(--graphite));
+  --well-2: color-mix(in srgb, var(--ink) 88%, var(--graphite));
+  --void: color-mix(in srgb, var(--ink) 55%, black);
+  --void-deep: color-mix(in srgb, var(--ink) 40%, black);
+  --scrim: color-mix(in srgb, var(--ink) 88%, transparent);
+  --bg-glow-a: color-mix(in srgb, var(--signal) 9%, var(--ink));
+  --bg-glow-b: color-mix(in srgb, var(--signal) 5%, var(--ink));
+  --row-highlight: color-mix(in srgb, var(--signal) 7%, var(--ink));
+  --row-hover: color-mix(in srgb, var(--carbon) 62%, var(--line));
+  --track: color-mix(in srgb, var(--signal) 5%, var(--panel));
+  --tip-bg: var(--well);
+  --toast-bg: color-mix(in srgb, var(--graphite) 75%, var(--line));
+  --toast-line: color-mix(in srgb, var(--line) 55%, var(--fog));
+
+  /* ----------------------------------------------------------------- text */
+  --text: var(--chalk);
+  --muted: var(--fog);
+  /* 84% fog keeps every small caption at AA (4.5:1) on graphite too. */
+  --dim: color-mix(in srgb, var(--fog) 84%, var(--ink));
+  --green-ink: var(--ink);
+
+  /* ---------------------------------------------------------------- lines */
+  --line-soft: color-mix(in srgb, var(--line) 60%, var(--ink));
+  --line-strong: color-mix(in srgb, var(--fog) 55%, var(--line));
+  --line-bright: color-mix(in srgb, var(--line) 55%, var(--fog));
+
+  /* -------------------------------------------------------- accent aliases */
+  --green: var(--signal);
+  --green-bright: color-mix(in srgb, var(--signal) 80%, white);
+  --green-soft: color-mix(in srgb, var(--signal) 38%, white);
+  --green-deep: color-mix(in srgb, var(--signal) 42%, var(--ink));
+  --purple: var(--violet);
+  --cyan: var(--ice);
+
+  /* --------------------------------------------------------- state washes */
+  --good-bg: color-mix(in srgb, var(--signal) 8%, var(--ink));
+  --good-line: color-mix(in srgb, var(--signal) 17%, var(--line));
+  --warn-bg: color-mix(in srgb, var(--amber) 8%, var(--ink));
+  --warn-line: color-mix(in srgb, var(--amber) 22%, var(--line));
+  --bad-bg: color-mix(in srgb, var(--red) 9%, var(--ink));
+  --bad-line: color-mix(in srgb, var(--red) 22%, var(--line));
+  --false-bg: color-mix(in srgb, var(--violet) 8%, var(--ink));
+  --false-line: color-mix(in srgb, var(--violet) 22%, var(--line));
+  --danger-bg: color-mix(in srgb, var(--red) 22%, var(--ink));
+  --danger-line: color-mix(in srgb, var(--red) 30%, var(--line));
+  --danger-text: color-mix(in srgb, var(--red) 45%, white);
+
+  /* ------------------------------------------------------- controls / misc */
+  --disabled-bg: color-mix(in srgb, var(--signal) 7%, var(--panel-2));
+  --disabled-text: color-mix(in srgb, var(--fog) 45%, var(--carbon));
+  --kbd-bg: color-mix(in srgb, black 14%, transparent);
+  --kbd-text: color-mix(in srgb, black 55%, transparent);
+  --ring-subtle: color-mix(in srgb, white 3%, transparent);
+  --glow-inset: color-mix(in srgb, white 18%, transparent);
+
+  /* ------------------------------------------------------ start-light rig */
+  --light-off: color-mix(in srgb, var(--red) 14%, var(--void-deep));
+  --light-off-line: color-mix(in srgb, var(--red) 18%, var(--line));
+  --light-off-inset: var(--void-deep);
+  --light-on-line: color-mix(in srgb, var(--red) 55%, white);
+  --light-go-line: var(--green-soft);
+
+  /* --------------------------------------------------------- boxing tokens */
+  --box-good: var(--signal);
+  --box-slow: var(--amber);
+  --box-bad: var(--red);
+  --box-false: var(--violet);
+  --box-glow-good: color-mix(in srgb, var(--signal) 60%, transparent);
+  --box-glow-slow: color-mix(in srgb, var(--amber) 55%, transparent);
+  --box-glow-bad: color-mix(in srgb, var(--red) 55%, transparent);
+  --box-glow-false: color-mix(in srgb, var(--violet) 50%, transparent);
+
+  /* --------------------------------------------------------------- shadows */
+  --shadow-glow-good: 0 0 60px var(--box-glow-good);
+  --shadow-glow-bad: 0 0 42px var(--box-glow-bad);
+  --shadow-card: 0 24px 60px color-mix(in srgb, black 45%, transparent);
+  --shadow-focus: 0 0 0 3px color-mix(in srgb, var(--signal) 25%, transparent);
+}

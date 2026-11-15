@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-labelledby="title desc">
+  <title id="title">Split2nd app icon</title>
+  <desc id="desc">The Split2nd boxing glove mascot on an ink-black tile with a signal-green glow.</desc>
+  <defs>
+    <radialGradient id="halo" cx="26%" cy="18%" r="85%">
+      <stop offset="0" stop-color="#3DFFA2" stop-opacity=".2"/>
+      <stop offset=".55" stop-color="#3DFFA2" stop-opacity=".04"/>
+      <stop offset="1" stop-color="#080A09" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="34"/>
+    </filter>
+    <style>
+      .body { fill: #3DFFA2; stroke: #080A09; stroke-width: 18; stroke-linejoin: round; }
+      .ink { fill: #080A09; }
+      .eye { fill: #F1F5F0; stroke: #080A09; stroke-width: 15; }
+      .pupil { fill: #080A09; }
+      .glint { fill: #F1F5F0; }
+      .line { fill: none; stroke: #080A09; stroke-width: 18; stroke-linecap: round; stroke-linejoin: round; }
+      .seam { fill: none; stroke: #080A09; stroke-width: 15; stroke-linecap: round; opacity: .35; }
+      .mark { fill: none; stroke: #F1F5F0; stroke-width: 18; stroke-linecap: round; stroke-linejoin: round; }
+      .grid { fill: none; stroke: #2A322C; stroke-width: 2; opacity: .55; }
+    </style>
+  </defs>
+
+  <rect width="1024" height="1024" fill="#080A09"/>
+  <rect width="1024" height="1024" fill="url(#halo)"/>
+  <g class="grid">
+    <path d="M0 256 H1024 M0 512 H1024 M0 768 H1024"/>
+    <path d="M256 0 V1024 M512 0 V1024 M768 0 V1024"/>
+  </g>
+  <circle cx="512" cy="500" r="372" fill="none" stroke="#3DFFA2" stroke-width="3" opacity=".28"/>
+  <ellipse cx="512" cy="520" rx="290" ry="276" fill="#3DFFA2" opacity=".16" filter="url(#soft)"/>
+
+  <g transform="translate(128 104) scale(3)">
+    <path class="body" d="M84 178 C72 162 68 140 72 118 C76 88 92 60 120 46 C148 32 180 38 198 60 C214 80 216 108 208 132 C199 158 180 174 156 180 Z"/>
+    <path class="body" d="M78 128 C62 126 50 136 50 151 C50 166 62 177 78 176 C89 176 97 170 101 160 L101 139 C95 132 87 128 78 128 Z"/>
+    <path class="seam" d="M100 139 C96 150 95 162 98 174"/>
+    <path class="seam" d="M180 65 C192 77 198 91 200 106"/>
+    <path class="seam" d="M168 58 C181 70 189 85 192 102"/>
+    <ellipse class="eye" cx="122" cy="95" rx="17" ry="20"/>
+    <circle class="pupil" cx="126" cy="98" r="8"/>
+    <circle class="glint" cx="131" cy="91" r="3"/>
+    <ellipse class="eye" cx="170" cy="91" rx="17" ry="20"/>
+    <circle class="pupil" cx="174" cy="94" r="8"/>
+    <circle class="glint" cx="179" cy="87" r="3"/>
+    <path class="line" d="M132 129 Q150 141 168 128"/>
+    <rect class="ink" x="80" y="172" width="96" height="56" rx="16"/>
+    <path class="mark" d="M109 192 C102 192 98 195 98 200 C98 205 103 207 109 208 C115 209 117 212 117 216 C117 221 112 223 105 222"/>
+    <path class="mark" d="M124 193 H141 C145 193 147 196 147 200 C147 204 143 208 137 212 L124 222 H147"/>
+  </g>
+</svg>

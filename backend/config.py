@@ -63,13 +63,13 @@ BASELINE_S = 0.4            # pre-stimulus baseline
 HOLD_STILL_S = 0.35         # required stillness before arming
 ARM_TIMEOUT_S = 4.0         # give up if the athlete keeps fidgeting
 PAINT_TIMEOUT_S = 1.5       # extra grace on top of the scheduled delay
-RESULT_HOLD_S = 2.2         # result card dwell before idle / next rep
+RESULT_HOLD_S = 1.2         # result card dwell before idle / next rep
 
 # Boxing: a longer window because a hook/uppercut is a gross action, and a
 # shorter pre-cue delay so a 10-cue set is usable in a demo.
-BOXING_WINDOW_MS = int(os.getenv("BOXING_WINDOW_MS", "1400"))
-BOXING_DELAY_MIN_MS = int(os.getenv("BOXING_DELAY_MIN_MS", "500"))
-BOXING_DELAY_MAX_MS = int(os.getenv("BOXING_DELAY_MAX_MS", "800"))
+BOXING_WINDOW_MS = int(os.getenv("BOXING_WINDOW_MS", "1000"))
+BOXING_DELAY_MIN_MS = int(os.getenv("BOXING_DELAY_MIN_MS", "150"))
+BOXING_DELAY_MAX_MS = int(os.getenv("BOXING_DELAY_MAX_MS", "300"))
 
 # F1-style start sequence. The server sends the full delay to lights-out.
 LIGHTS_COUNT = 5
@@ -101,8 +101,8 @@ TLS_CERT = CERT_DIR / "server.crt"
 TLS_KEY = CERT_DIR / "server.key"
 
 # Preview stream
-PREVIEW_FPS = 12
-PREVIEW_QUALITY = 70
+PREVIEW_FPS = int(os.getenv("PREVIEW_FPS", "20"))
+PREVIEW_QUALITY = int(os.getenv("PREVIEW_QUALITY", "50"))
 FRAME_MAX_CHARS = 600_000   # ~450 KB binary, plenty for 640x480 q65
 
 # UI limits

@@ -471,7 +471,8 @@ class SerialRig(BaseRig):
                     self._sleep(1.0)
                     continue
             try:
-                self.ser = serial.Serial(self.port, 115200, timeout=0.2)
+                self.ser = serial.Serial(self.port, 115200, timeout=0.2,
+                                         write_timeout=0.2)
                 self.connected = True
                 self.port_busy = False
                 self.last_error = None

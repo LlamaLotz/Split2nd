@@ -197,6 +197,7 @@ class DrillEngine:
         self.boxing_results: list[dict[str, Any]] = []
         self.boxing_cue: dict[str, Any] | None = None
         self.boxing_finished = False
+        self._early_done = False
         self.combo = 0
         self.ghost_session_id: str | None = None
         self.ghost_trace: list[dict[str, Any]] = []
@@ -271,6 +272,7 @@ class DrillEngine:
             self.boxing_cue = None
             self.combo = 0
             self.rep_no = 0
+            self._set_guide(None, self.stance)
         self.rig.disarm()
         self.rig.led(None)
         await self.broadcast_state()
@@ -332,6 +334,7 @@ class DrillEngine:
             self.arm_started = time.perf_counter()
             self.mode = mode
             self.stance = stance
+            self._set_guide(None, stance)
             self.ghost_session_id = ghost_session_id if mode == "boxing" else None
             self.ghost_trace = ghost_trace
             self.boxing_results = []
@@ -376,6 +379,18 @@ class DrillEngine:
     # scheduling and paint
     # ------------------------------------------------------------------
     def _pick_display(self) -> tuple[Client | None, str]:
+        # The tab that pressed START owns the display.  Prefer it even when
+        # other controller tabs are connected.
+        if self.display_client_id:
+            preferred = self.manager.get(self.display_client_id)
+            if preferred:
+                if preferred.role == "player":
+                    return preferred, "remote"
+                camera_local = getattr(self.vision, "mode", None) == "local"
+                if camera_local:
+                    return preferred, "local"
+                return preferred, ("local" if self.vision.local_available() else "fake")
+
         # The current demo rig is the laptop webcam plus the controller page.
         # `vision.mode == "local"` means the camera is configured and opening;
         # the arm phase waits for frames instead of silently switching to fake.
@@ -478,6 +493,7 @@ class DrillEngine:
             self.response_deadline = self.t0 + config.REP_WINDOW_S
         self.hit_ms = None
         self.hit_cm = None
+        self._early_done = False
         self.rig.stim()
         self.rig.led(None)
         if self.source == "fake":
@@ -489,8 +505,10 @@ class DrillEngine:
         self.phase = "response"
         if self.mode == "boxing" and self.boxing_cue:
             self.msg = f"GO - {self.boxing_cue['label']}"
+            self._set_guide(self.boxing_cue["id"], self.stance)
         else:
             self.msg = "GO"
+            self._set_guide(None, self.stance)
         await self.broadcast_state()
 
     # ------------------------------------------------------------------
@@ -555,6 +573,17 @@ class DrillEngine:
                 await self._fault("Display disconnected")
                 return
             if self.mode == "boxing":
+                elapsed = self._now_drill() - self.t0
+                # Score a clear punch as soon as it is confident instead of
+                # waiting the full window. Unclear/miss still waits.
+                if not self._early_done and elapsed >= 0.70 and self.boxing_cue:
+                    self._early_done = True
+                    frames = self._boxing_frames()
+                    det = boxing.classify_window(frames, self.boxing_cue["id"], self.stance)
+                    if (det.get("action")
+                            and float(det.get("confidence") or 0.0) >= 0.60):
+                        await self._finish_boxing_cue()
+                        return
                 if self._now_drill() > self.response_deadline:
                     await self._finish_boxing_cue()
                 return
@@ -749,6 +778,7 @@ class DrillEngine:
             self.boxing_cue = None
             self.combo = 0
             self.rep_no = 0
+            self._set_guide(None, self.stance)
         self.rig.disarm()
         self.rig.led(None)
         await self.manager.broadcast({"type": "fault", "message": message})
@@ -772,6 +802,14 @@ class DrillEngine:
     # ------------------------------------------------------------------
     # boxing
     # ------------------------------------------------------------------
+    def _set_guide(self, action: str | None, stance: str | None = None) -> None:
+        fn = getattr(self.vision, "set_guide", None)
+        if callable(fn):
+            try:
+                fn(action, stance or self.stance)
+            except Exception:
+                pass
+
     def _boxing_progress(self) -> dict[str, Any] | None:
         if self.mode != "boxing" or not self.boxing_set:
             return None
@@ -1000,6 +1038,7 @@ class DrillEngine:
         self.hit_ms = None
         self.hit_cm = None
         self.msg = f"Guard up - {self.boxing_cue['label']}"
+        self._set_guide(None, self.stance)
         self.rig.led(None)
         await self.broadcast_state()
 

@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -198,6 +198,17 @@ async def video():
 
     return StreamingResponse(gen(), media_type="multipart/x-mixed-replace; boundary=frame",
                              headers={"Cache-Control": "no-store"})
+
+
+@app.get("/frame")
+async def frame():
+    """One current JPEG. The boxing page polls this instead of MJPEG so a
+    slow browser cannot build seconds of preview latency."""
+    jpeg = vision.latest_jpeg()
+    if not jpeg:
+        raise HTTPException(503, "camera frame not ready")
+    return Response(content=jpeg, media_type="image/jpeg",
+                    headers={"Cache-Control": "no-store"})
 
 
 # ----------------------------------------------------------------------
@@ -421,6 +432,11 @@ async def websocket_endpoint(ws: WebSocket, role: str = "controller",
                                          mode=msg.get("mode"),
                                          stance=msg.get("stance"),
                                          ghost_session_id=msg.get("ghost_session_id"))
+                if res.get("ok"):
+                    # The client that pressed START owns the cue display.
+                    # Without this, a second controller tab can silently
+                    # receive every schedule while the active page stays READY.
+                    engine.display_client_id = client.id
                 if not res.get("ok"):
                     await ws.send_json({"type": "fault", "message": res.get("error", "cannot start")})
             elif cmd == "stop":

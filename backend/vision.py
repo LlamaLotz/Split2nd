@@ -115,6 +115,10 @@ class VisionEngine:
         self._threads: list[threading.Thread] = []
         self._latest_jpeg: bytes | None = None
         self._last_preview_t = 0.0
+        self._preview_q: queue.Queue = queue.Queue(maxsize=1)
+        self._preview_thread: threading.Thread | None = None
+        self.guide_action: str | None = None
+        self.guide_stance = "orthodox"
         self._prev_gray: dict[str, Any] = {}
         self._pose = None          # legacy fallback
         self._landmarker = None    # Tasks PoseLandmarker
@@ -141,6 +145,11 @@ class VisionEngine:
         proc = threading.Thread(target=self._process_loop, name="vision-process", daemon=True)
         proc.start()
         self._threads.append(proc)
+
+        preview = threading.Thread(target=self._preview_loop, name="vision-preview", daemon=True)
+        preview.start()
+        self._preview_thread = preview
+        self._threads.append(preview)
 
         if self.mode == "fake":
             self._start_fake()
@@ -508,13 +517,122 @@ class VisionEngine:
         self._last_preview_t = now
         if not CV2_OK:
             return
-        vis = frame.copy()
+        # Keep the detection thread free: copy once, then encode on the
+        # dedicated preview thread. Drop the oldest preview under load.
+        item = (frame.copy(), landmarks)
+        try:
+            self._preview_q.put_nowait(item)
+        except queue.Full:
+            try:
+                self._preview_q.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                self._preview_q.put_nowait(item)
+            except queue.Full:
+                pass
+
+    def _preview_loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                frame, landmarks = self._preview_q.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            self._render_preview(frame, landmarks)
+
+    def set_guide(self, action: str | None, stance: str = "orthodox") -> None:
+        """Set the ghost guide drawn on the preview (action id or None)."""
+        with self.lock:
+            self.guide_action = action
+            self.guide_stance = ("southpaw" if str(stance).lower().startswith("south")
+                                 else "orthodox")
+
+    def _draw_guide(self, vis: Any, pts: list, tw: int, th: int) -> None:
+        if not pts or len(pts) < 33:
+            return
+        try:
+            import cv2 as _cv
+        except Exception:
+            return
+
+        def p(i: int) -> tuple[int, int]:
+            return int(pts[i][0] * tw), int(pts[i][1] * th)
+
+        nx, ny = p(0)
+        lsh, rsh = p(11), p(12)
+        sw = max(26.0, math.hypot(lsh[0] - rsh[0], lsh[1] - rsh[1]))
+        cyan = (255, 210, 80)   # BGR
+        amber = (80, 190, 245)  # BGR
+        lead = 15 if self.guide_stance == "orthodox" else 16
+        rear = 16 if lead == 15 else 15
+        guard: dict[int, tuple[int, int]] = {}
+        for idx in (15, 16):
+            sign = 1 if pts[idx][0] >= pts[0][0] else -1
+            gx = nx + int(sign * sw * 0.55)
+            gy = ny + int(sw * 0.18)
+            guard[idx] = (gx, gy)
+            _cv.circle(vis, (gx, gy), max(7, int(sw * 0.18)), cyan, 2, _cv.LINE_AA)
+            _cv.circle(vis, (gx, gy), 2, cyan, -1, _cv.LINE_AA)
+        _cv.putText(vis, "GUARD", (max(4, nx - int(sw * 0.9)), max(14, ny - int(sw * 0.45))),
+                    _cv.FONT_HERSHEY_SIMPLEX, 0.42, cyan, 1, _cv.LINE_AA)
+        action = self.guide_action
+        if not action:
+            return
+
+        def arrow(a, b) -> None:
+            _cv.arrowedLine(vis, a, b, amber, 2, _cv.LINE_AA, tipLength=0.25)
+
+        def dot(pt) -> None:
+            _cv.circle(vis, pt, max(7, int(sw * 0.18)), amber, 2, _cv.LINE_AA)
+
+        def label(text: str, pt) -> None:
+            _cv.putText(vis, text, (max(2, pt[0] - int(sw * 0.2)), max(12, pt[1] - int(sw * 0.25))),
+                        _cv.FONT_HERSHEY_SIMPLEX, 0.42, amber, 1, _cv.LINE_AA)
+
+        if action in ("jab", "cross"):
+            idx = lead if action == "jab" else rear
+            sign = 1 if pts[idx][0] >= pts[0][0] else -1
+            end = (nx + int(sign * sw * 0.12), ny + int(sw * 0.02))
+            arrow(guard[idx], end)
+            dot(end)
+            label("JAB" if action == "jab" else "CROSS", end)
+        elif action in ("hook_l", "hook_r"):
+            idx = 15 if action == "hook_l" else 16
+            sign = 1 if pts[idx][0] >= pts[0][0] else -1
+            mid = (nx + int(sign * sw * 0.15), ny - int(sw * 0.15))
+            end = (nx - int(sign * sw * 0.75), ny + int(sw * 0.08))
+            arrow(guard[idx], mid)
+            arrow(mid, end)
+            dot(end)
+            label("HOOK", end)
+        elif action in ("uppercut_l", "uppercut_r"):
+            idx = 15 if action == "uppercut_l" else 16
+            start = (guard[idx][0], ny + int(sw * 0.80))
+            end = (guard[idx][0], ny + int(sw * 0.02))
+            arrow(start, end)
+            dot(end)
+            label("UPPER", end)
+        elif action in ("slip_l", "slip_r"):
+            sign = -1 if action == "slip_l" else 1
+            end = (nx + int(sign * sw * 0.55), ny + int(sw * 0.10))
+            arrow((nx, ny), end)
+            label("SLIP", end)
+        elif action == "block":
+            _cv.line(vis, guard[15], guard[16], amber, 2, _cv.LINE_AA)
+            label("BLOCK", (nx, ny - int(sw * 0.35)))
+
+    def _render_preview(self, frame: Any, landmarks: list | None) -> None:
+        if not CV2_OK:
+            return
+        h, w = frame.shape[:2]
+        tw = 320
+        th = max(2, int(round(h * tw / max(1, w))))
+        vis = cv2.resize(frame, (tw, th), interpolation=cv2.INTER_AREA)
         if landmarks:
             pts = landmarks
 
             def px(i: int) -> tuple[int, int]:
-                h, w = vis.shape[:2]
-                return int(pts[i][0] * w), int(pts[i][1] * h)
+                return int(pts[i][0] * tw), int(pts[i][1] * th)
 
             for a, b in ((11, 12), (11, 23), (12, 24), (23, 24), (11, 15), (12, 16)):
                 try:
@@ -523,14 +641,15 @@ class VisionEngine:
                     pass
             for i in SELECTED:
                 try:
-                    cv2.circle(vis, px(i), 4, (240, 240, 240), -1, cv2.LINE_AA)
+                    cv2.circle(vis, px(i), 3, (240, 240, 240), -1, cv2.LINE_AA)
                 except Exception:
                     pass
             try:
-                cv2.putText(vis, f"{self.last_speed:4.2f}", (12, 28),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (80, 255, 150), 2, cv2.LINE_AA)
+                cv2.putText(vis, f"{self.last_speed:4.2f}", (10, 24),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (80, 255, 150), 2, cv2.LINE_AA)
             except Exception:
                 pass
+        self._draw_guide(vis, landmarks, tw, th)
         try:
             ok, buf = cv2.imencode(".jpg", vis, [int(cv2.IMWRITE_JPEG_QUALITY),
                                                  config.PREVIEW_QUALITY])

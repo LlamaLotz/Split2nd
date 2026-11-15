@@ -144,23 +144,23 @@ THRESHOLDS: dict[str, float] = {
     "min_frames": 6,
     "min_visibility": 0.25,
     # straight punches: depth (z) decreases, elbow extends
-    "straight_depth_drop": 0.45,
-    "straight_elbow_extended": 150.0,
-    "straight_travel": 0.50,
+    "straight_depth_drop": 0.30,
+    "straight_elbow_extended": 145.0,
+    "straight_travel": 0.22,
     "straight_depth_lead": 0.10,
     "straight_forward_ratio": 0.50,
     # hooks: x travels across the body, elbow stays bent, little y change
-    "hook_cross_travel": 0.30,
+    "hook_cross_travel": 0.14,
     "hook_elbow_min": 70.0,
-    "hook_elbow_max": 120.0,
-    "hook_vertical_max": 0.35,
-    "hook_travel": 0.40,
+    "hook_elbow_max": 150.0,
+    "hook_vertical_max": 0.50,
+    "hook_travel": 0.22,
     "hook_cross_lead": 0.05,
     # uppercuts: start below the shoulder, rise, elbow stays flexed
-    "uppercut_start_below": 0.10,
-    "uppercut_rise": 0.35,
-    "uppercut_elbow_max": 135.0,
-    "uppercut_travel": 0.40,
+    "uppercut_start_below": -0.05,
+    "uppercut_rise": 0.16,
+    "uppercut_elbow_max": 150.0,
+    "uppercut_travel": 0.22,
     "uppercut_rise_lead": 0.10,
     # slips: head leaves the line while the hands stay by the face
     "slip_head_dx": 0.35,
@@ -171,7 +171,7 @@ THRESHOLDS: dict[str, float] = {
     # block: both wrists high, near the head, and not travelling
     "block_wrist_above": 0.10,
     "block_wrist_face": 0.90,
-    "block_max_wrist_speed": 4.00,
+    "block_max_wrist_speed": 3.00,
     "block_max_wrist_path": 6.00,
     "block_head_dx": 0.20,
     "block_head_dy": 0.25,
@@ -187,7 +187,7 @@ THRESHOLDS: dict[str, float] = {
     # Real HC-SR04 Z: a straight punch must close distance toward the laptop.
     # Used as the primary straight condition whenever the sensor is fresh; the
     # monocular pose depth is only the fallback when no sensor reading exists.
-    "sensor_straight_drop_cm": 6.0,
+    "sensor_straight_drop_cm": 4.0,
     "sensor_min_drop_cm": 2.0,
 }
 
@@ -622,9 +622,15 @@ def _straight_candidates(features: dict[str, Any], stance: str) -> list[dict[str
             # drop; do not let the monocular world-z prediction override it.
             straight_primary = float(sensor) >= THRESHOLDS["sensor_straight_drop_cm"]
         else:
-            # No in-rep Z reading (short punch / sensor not crossed): fall
-            # back to the pose depth rather than vetoing a real straight.
-            straight_primary = depth >= THRESHOLDS["straight_depth_drop"]
+            # No in-rep Z reading (short punch / sensor not crossed): use
+            # elbow extension + travel as a real-pose straight cue instead of
+            # vetoing a real straight on the noisy monocular depth alone.
+            straight_primary = (
+                depth >= THRESHOLDS["straight_depth_drop"]
+                or (elbow is not None
+                    and elbow >= THRESHOLDS["straight_elbow_extended"]
+                    and travel >= 0.20)
+            )
         conds = [
             straight_primary,
             elbow is not None and elbow >= THRESHOLDS["straight_elbow_extended"],
@@ -741,7 +747,9 @@ def _block_candidates(features: dict[str, Any]) -> list[dict[str, Any]]:
         "pattern": "block",
         "confidence": _frac(conds),
         "conditions": conds,
-        "primary": bool(conds[0] and conds[1]),
+        # A block is a held posture: high guard AND low wrist speed. Without
+        # the speed condition, a moving jab/cross kept winning as "block".
+        "primary": bool(conds[0] and conds[1] and conds[5]),
     }]
 
 

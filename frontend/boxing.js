@@ -164,14 +164,13 @@ function runCue(msg) {
   S.lastTotal = msg.progress?.done ?? 0;
   $("#startBtn").textContent = "RUNNING";
   $("#eyebrow").textContent =
-    `CUE ${msg.rep}/${msg.progress?.total ?? 10} · NEXT ${label(msg.cue.id)} · ${(msg.cue.family || "action").toUpperCase()}`;
+    `CUE ${msg.rep}/${msg.progress?.total ?? 10} · GET READY`;
   $("#progress").textContent = `${msg.progress?.done ?? 0}/${msg.progress?.total ?? 10}`;
   $("#accuracy").textContent =
     msg.progress?.done ? `${Math.round(msg.progress.accuracy * 100)}%` : "--";
   $cue.className = "";
   $cue.textContent = "READY";
-  $text.textContent =
-    `Next: ${label(msg.cue.id)} — ${msg.cue.cue || "throw it at GO, then return to guard."} Throw at GO.`;
+  $text.textContent = "Eyes on the cue. Throw only when the punch appears.";
   $result.classList.remove("show", "good", "bad");
   $("#detected").textContent = "--";
   $("#confidence").textContent = "--";
@@ -307,4 +306,28 @@ $("#stanceBtn").onclick = () => {
   $("#sessionHint").textContent = `Stance set to ${S.stance}. Start the next set to apply it.`;
 };
 
+function startCam() {
+  const cam = $("#cam");
+  let inflight = false;
+  async function tick() {
+    if (inflight) return;
+    inflight = true;
+    try {
+      const r = await fetch(`/frame?t=${Date.now()}`, { cache: "no-store" });
+      if (r.ok) {
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const old = cam.dataset.url;
+        cam.dataset.url = url;
+        cam.src = url;
+        if (old) setTimeout(() => URL.revokeObjectURL(old), 1500);
+      }
+    } catch {}
+    inflight = false;
+  }
+  setInterval(tick, 50);
+  tick();
+}
+
+startCam();
 boot();

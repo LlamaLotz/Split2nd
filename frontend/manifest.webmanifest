@@ -1,0 +1,25 @@
+{
+  "name": "Split2nd",
+  "short_name": "Split2nd",
+  "description": "Reflex trainer: the phone is the sensor and the scoreboard.",
+  "start_url": "/play",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#080A09",
+  "background_color": "#080A09",
+  "icons": [
+    {
+      "src": "/static/assets/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/assets/icon-1024.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-labelledby="title desc">
+  <title id="title">Split2nd — train the first 250 milliseconds</title>
+  <desc id="desc">Ink-black social card with the Split2nd wordmark, a start-light row and the boxing-glove mascot.</desc>
+  <defs>
+    <radialGradient id="card-glow" cx="70%" cy="34%" r="62%">
+      <stop offset="0" stop-color="#3DFFA2" stop-opacity=".18"/>
+      <stop offset=".6" stop-color="#3DFFA2" stop-opacity=".04"/>
+      <stop offset="1" stop-color="#080A09" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="card-warm" cx="8%" cy="0%" r="55%">
+      <stop offset="0" stop-color="#FFC857" stop-opacity=".1"/>
+      <stop offset="1" stop-color="#FFC857" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="mascot-glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="26"/>
+    </filter>
+    <style>
+      .grid { fill: none; stroke: #2A322C; stroke-width: 1.5; opacity: .55; }
+      .sans { font-family: Inter, "Segoe UI", system-ui, -apple-system, sans-serif; }
+      .mono { font-family: "SF Mono", "Cascadia Code", "Roboto Mono", ui-monospace, Menlo, Consolas, monospace; }
+      .body { fill: #3DFFA2; stroke: #080A09; stroke-width: 18; stroke-linejoin: round; }
+      .ink { fill: #080A09; }
+      .eye { fill: #F1F5F0; stroke: #080A09; stroke-width: 15; }
+      .pupil { fill: #080A09; }
+      .glint { fill: #F1F5F0; }
+      .line { fill: none; stroke: #080A09; stroke-width: 18; stroke-linecap: round; stroke-linejoin: round; }
+      .seam { fill: none; stroke: #080A09; stroke-width: 15; stroke-linecap: round; opacity: .35; }
+      .mark { fill: none; stroke: #F1F5F0; stroke-width: 18; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="630" fill="#080A09"/>
+  <rect width="1200" height="630" fill="url(#card-glow)"/>
+  <rect width="1200" height="630" fill="url(#card-warm)"/>
+  <g class="grid">
+    <path d="M0 158 H1200 M0 316 H1200 M0 474 H1200"/>
+    <path d="M200 0 V630 M400 0 V630 M600 0 V630 M800 0 V630 M1000 0 V630"/>
+  </g>
+
+  <!-- brand lockup -->
+  <rect x="72" y="60" width="58" height="58" rx="14" fill="#3DFFA2"/>
+  <path d="M96 78 C90 78 86 81 86 86 C86 90.5 90 92 96 93 C102 94 105 96 105 100 C105 105 100 107 94 106" fill="none" stroke="#080A09" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M109 79 H120 C123 79 125 81.5 125 85 C125 88.5 122 91.5 117 95 L109 102 H125" fill="none" stroke="#080A09" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="150" y="102" class="sans" fill="#F1F5F0" font-size="32" font-weight="800" letter-spacing="3">SPLIT</text>
+  <text x="267" y="102" class="sans" fill="#3DFFA2" font-size="32" font-weight="800" letter-spacing="3">2</text>
+  <text x="292" y="102" class="sans" fill="#F1F5F0" font-size="32" font-weight="800" letter-spacing="3">ND</text>
+
+  <!-- headline -->
+  <text x="72" y="238" class="mono" fill="#98A39A" font-size="17" letter-spacing="4">REFLEX TRAINER · ONHACKS BUILD</text>
+  <text x="70" y="342" class="sans" fill="#F1F5F0" font-size="76" font-weight="800" letter-spacing="-2">TRAIN THE FIRST</text>
+  <text x="70" y="428" class="sans" font-size="76" font-weight="800" letter-spacing="-2"><tspan fill="#3DFFA2">250</tspan><tspan fill="#F1F5F0"> MILLISECONDS.</tspan></text>
+  <text x="72" y="486" class="sans" fill="#98A39A" font-size="23">Your phone is the sensor and the scoreboard.</text>
+
+  <!-- lights -->
+  <g transform="translate(72 548)">
+    <circle cx="14" cy="0" r="12" fill="#170A0A" stroke="#2B1414" stroke-width="2"/>
+    <circle cx="52" cy="0" r="12" fill="#170A0A" stroke="#2B1414" stroke-width="2"/>
+    <circle cx="90" cy="0" r="12" fill="#170A0A" stroke="#2B1414" stroke-width="2"/>
+    <circle cx="128" cy="0" r="12" fill="#170A0A" stroke="#2B1414" stroke-width="2"/>
+    <circle cx="166" cy="0" r="12" fill="#3DFFA2" stroke="#B6FFD9" stroke-width="2"/>
+    <text x="196" y="6" class="mono" fill="#98A39A" font-size="15" letter-spacing="3">LIGHTS OUT. GO.</text>
+  </g>
+
+  <!-- mascot -->
+  <circle cx="954" cy="308" r="222" fill="none" stroke="#3DFFA2" stroke-width="2" opacity=".22"/>
+  <ellipse cx="954" cy="320" rx="205" ry="198" fill="#3DFFA2" opacity=".18" filter="url(#mascot-glow)"/>
+  <g transform="translate(744 88) scale(1.64)">
+    <path class="body" d="M84 178 C72 162 68 140 72 118 C76 88 92 60 120 46 C148 32 180 38 198 60 C214 80 216 108 208 132 C199 158 180 174 156 180 Z"/>
+    <path class="body" d="M78 128 C62 126 50 136 50 151 C50 166 62 177 78 176 C89 176 97 170 101 160 L101 139 C95 132 87 128 78 128 Z"/>
+    <path class="seam" d="M100 139 C96 150 95 162 98 174"/>
+    <path class="seam" d="M180 65 C192 77 198 91 200 106"/>
+    <path class="seam" d="M168 58 C181 70 189 85 192 102"/>
+    <ellipse class="eye" cx="122" cy="95" rx="17" ry="20"/>
+    <circle class="pupil" cx="126" cy="98" r="8"/>
+    <circle class="glint" cx="131" cy="91" r="3"/>
+    <ellipse class="eye" cx="170" cy="91" rx="17" ry="20"/>
+    <circle class="pupil" cx="174" cy="94" r="8"/>
+    <circle class="glint" cx="179" cy="87" r="3"/>
+    <path class="line" d="M132 129 Q150 141 168 128"/>
+    <rect class="ink" x="80" y="172" width="96" height="56" rx="16"/>
+    <path class="mark" d="M109 192 C102 192 98 195 98 200 C98 205 103 207 109 208 C115 209 117 212 117 216 C117 221 112 223 105 222"/>
+    <path class="mark" d="M124 193 H141 C145 193 147 196 147 200 C147 204 143 208 137 212 L124 222 H147"/>
+  </g>
+  <path d="M1112 122 L1120 130 L1112 138 L1104 130 Z" fill="#FFC857"/>
+  <path d="M1094 502 L1102 510 L1094 518 L1086 510 Z" fill="#6EE7FF"/>
+</svg>

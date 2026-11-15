@@ -21,7 +21,6 @@ The athlete sees F1-style lights, reacts, and gets a reaction time, a green/yell
           Arduino Uno R3
           ├─ LEDs G/Y/R
           ├─ OLED (U8g2)
-          ├─ rotary encoder
           └─ HC-SR04 ultrasonic (Z channel)
 ```
 
@@ -93,8 +92,11 @@ Plain HTTP on `http://127.0.0.1:8443` runs the full state machine, UI, XP, leade
 ```powershell
 .venv\Scripts\python scripts\check_camera.py --scan
 .venv\Scripts\python scripts\check_rig.py --port COM4 --seconds 15 --led
+.venv\Scripts\python test_rig.py COM4        # firmware acceptance test
 .venv\Scripts\python -m pytest -q
 ```
+
+Upload `reflex_fw/reflex_fw.ino` from the Arduino IDE first, then close the IDE Serial Monitor. `test_rig.py` exercises the real protocol: boot lines, `VER`, demo telemetry, `GATE`, `DIST`, `STIM`/`HIT`, `LED`, `SHOW`, and the overlong-line error.
 
 ---
 
@@ -176,24 +178,29 @@ There is no true simultaneous mode. Two athletes cannot react to the same light 
 | Direction | Message | Meaning |
 |---|---|---|
 | PC → Uno | `PING` | reply `PONG` |
-| PC → Uno | `GATE <cm>` | ultrasonic trigger distance |
-| PC → Uno | `STIM` | arm the microsecond timer |
+| PC → Uno | `VER` | reply `VER reflex-fw 1.0` |
+| PC → Uno | `DEMO 0` / `DEMO 1` | demo telemetry off/on (send `DEMO 0` after `READY`) |
+| PC → Uno | `GATE <cm>` | ultrasonic trigger distance, 5–200 cm |
+| PC → Uno | `DIST` | one distance reading: `DIST <cm>` or `DIST -1` |
+| PC → Uno | `STIM` | arm the microsecond timer; turns demo off |
 | PC → Uno | `DISARM` | stop watching the gate |
 | PC → Uno | `LED G\|Y\|R\|0` | feedback LED |
-| PC → Uno | `SHOW <ms> <G\|Y\|R\|F> <best>` | OLED result |
+| PC → Uno | `SHOW <ms> <G\|Y\|R\|F> <best>` | OLED result (the app maps a miss to `R`) |
 | Uno → PC | `READY` | boot complete |
-| Uno → PC | `PONG` | link check |
-| Uno → PC | `ENC <+1/-1>` | encoder turn; cycles the athlete |
-| Uno → PC | `BTN` | encoder press; starts a rep |
+| Uno → PC | `I2C 0x3C` / `I2C NONE` | OLED address at boot |
+| Uno → PC | `PONG` / `OK` / `ERR ...` | command replies |
+| Uno → PC | `DEMO <cm>` | distance every 150 ms while demo telemetry is on |
 | Uno → PC | `HIT <ms> <cm>` | gate tripped since `STIM` |
+| Uno → PC | `TIMEOUT` | armed for 5 s with no hit |
 
-Wiring and firmware notes live in [`docs/reflex-trainer-master-spec.md`](docs/reflex-trainer-master-spec.md) §5–6. The pin map there is the source of truth.
+The firmware is **`reflex_fw/reflex_fw.ino`**; the authoritative hardware contract is [`arduino-firmware-spec.md`](arduino-firmware-spec.md). There is no rotary encoder and no button on the real unit — LED, OLED and the ultrasonic are the whole physical interface. `test_rig.py` is the serial acceptance test for the sketch.
 
 Serial details that bite:
 
 - Genuine Uno: ATmega16U2, Windows `usbser.sys`. Clone: CH340, install the driver **before** the venue.
 - Close the Arduino IDE Serial Monitor; only one process can hold `COMx`.
-- Opening the port resets the board; `READY` arrives ~2 s later. The rig reads until `READY`, then `PING`/`PONG`.
+- Opening the port resets the board; `READY` arrives ~2 s later. The rig reads until `READY`, then sends `DEMO 0` and `PING`.
+- `DIST` is the live calibration readout; `STIM` turns demo telemetry off automatically.
 - Use a data cable, not a charge-only one. Prefer a direct port over an unpowered hub.
 
 ---

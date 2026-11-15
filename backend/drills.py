@@ -319,9 +319,13 @@ class DrillEngine:
 
         same_clock = (self.source == "remote" and self.display_role == "player")
         if same_clock:
+            # The display and the camera are the same page, so t0 and every
+            # frame timestamp live in one performance.now() clock. We still
+            # need the backend<->client offset to know how much of the 1.5 s
+            # response window has actually elapsed.
             self.drill_clock = clock
             self.t0 = ts
-            self.offset = 0.0
+            self.offset = recv - ts
         else:
             self.drill_clock = "backend"
             self.t0 = recv

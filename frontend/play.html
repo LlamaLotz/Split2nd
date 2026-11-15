@@ -7,7 +7,10 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Split2nd · Player</title>
+<link rel="icon" href="/static/assets/favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="/static/manifest.webmanifest">
 <link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/boxing.css">
 </head>
 <body class="player-body">
 <div class="banner hidden" id="banner"></div>
@@ -15,7 +18,11 @@
 <section class="gate" id="gate">
   <div class="mark">S2</div>
   <h1>Split2nd</h1>
-  <p>Your phone is the sensor and the scoreboard. Prop it up at eye level, step back so your upper body is in frame, then race the lights.</p>
+  <div class="mode-toggle gate-mode" role="group" aria-label="Training mode">
+    <button type="button" data-mode="racing" aria-pressed="true">Racing</button>
+    <button type="button" data-mode="boxing" aria-pressed="false">Boxing</button>
+  </div>
+  <p id="gateCopy">Your phone is the sensor and the scoreboard. Prop it up at eye level, step back so your upper body is in frame, then race the lights.</p>
   <button class="btn-primary" id="startCam">Enable camera &amp; begin</button>
   <div class="tiny" id="gateHint">Camera needs HTTPS. Keep this page open; the screen will stay awake.</div>
 </section>
@@ -26,6 +33,10 @@
     <span class="pill">LVL <b id="hudLevel">1</b></span>
     <span class="pill"><span id="hudStreak">0</span> DAY STREAK</span>
     <span class="spacer"></span>
+    <div class="mode-toggle mode-toggle-sm" role="group" aria-label="Training mode">
+      <button type="button" data-mode="racing" aria-pressed="true">Race</button>
+      <button type="button" data-mode="boxing" aria-pressed="false">Box</button>
+    </div>
     <span class="pill" id="roomPill">SOLO</span>
     <span class="pill"><i class="dot" id="connDot"></i><span id="connText">offline</span></span>
   </div>
@@ -68,6 +79,133 @@
     </div>
   </div>
 </div>
+
+<!-- Boxing display: the camera video is re-used as a dimmed full-screen background. -->
+<section class="box-app hidden" id="boxApp" aria-label="Boxing drill">
+  <div class="box-topbar">
+    <div class="box-who">
+      <b id="boxName">Athlete</b>
+      <span id="boxLevel">LVL 1</span>
+    </div>
+    <div class="box-topstats">
+      <span class="box-streak-pill" title="Day streak">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.2 2c.5 3.3-1.5 4.6-2.8 6.3-1.1 1.5-1.8 2.8-1.8 4.6 0 2.2 1.5 3.7 3.4 3.7 1.6 0 2.6-1 2.6-2.5 0-1.2-.6-1.8-1.4-2.9 2.6.8 4.6 3 4.6 5.9 0 3.2-2.6 5.7-6.1 5.7C7.3 22.8 4 20 4 15.9c0-3.6 2-6.2 4.4-8.6C10.9 4.8 12.9 3.7 13.2 2z"/></svg>
+        <b id="boxStreak">0</b>
+      </span>
+      <div class="mode-toggle mode-toggle-sm" role="group" aria-label="Training mode">
+        <button type="button" data-mode="racing" aria-pressed="true">Race</button>
+        <button type="button" data-mode="boxing" aria-pressed="false">Box</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="box-stage">
+    <div class="box-rings" aria-hidden="true">
+      <i class="box-ring ring-lead" data-side="left"></i>
+      <i class="box-ring ring-rear" data-side="right"></i>
+      <i class="box-ring ring-center" data-side="center"></i>
+    </div>
+
+    <div class="box-arrow-wrap" id="boxArrowWrap" data-side="center" aria-hidden="true">
+      <svg class="box-arrow" viewBox="0 0 100 100"><path d="M50 7 L84 43 H62 V93 H38 V43 H16 Z"/></svg>
+    </div>
+
+    <div class="box-cue" id="boxCue" aria-live="polite">
+      <div class="box-cue-word" id="boxCueWord">READY</div>
+      <div class="box-cue-hand" id="boxCueHand">WAITING FOR CONTROLLER</div>
+    </div>
+
+    <div class="box-countdown" aria-hidden="true">
+      <div class="box-countdown-bar"><i id="boxCountBar"></i></div>
+      <span id="boxCountdown">--</span>
+    </div>
+  </div>
+
+  <div class="box-bottom">
+    <div class="box-reward hidden" id="boxReward">
+      <span class="box-stars" id="boxStars"></span>
+      <span class="box-chest hidden" id="boxChest"></span>
+    </div>
+
+    <div class="box-verdict hidden" id="boxVerdict">
+      <span class="v-expected" id="vExpected">EXPECTED</span>
+      <span class="v-mark" id="vMark" aria-hidden="true"></span>
+      <span class="v-detected" id="vDetected">DETECTED</span>
+    </div>
+
+    <div class="box-last" id="boxLast">Camera preview is live. The controller starts the set.</div>
+
+    <div class="box-metrics">
+      <div class="box-combo">
+        <span class="box-metric-label">Combo</span>
+        <div class="box-combo-line">
+          <b id="boxCombo">0</b>
+          <span class="box-combo-dots" id="boxComboDots" aria-hidden="true">
+            <i></i><i></i><i></i><i></i><i></i>
+          </span>
+        </div>
+      </div>
+      <div class="box-xp">
+        <div class="box-xp-label"><span>Set XP</span><b id="boxXp">+0</b></div>
+        <div class="box-xp-bar"><i id="boxXpBar"></i></div>
+      </div>
+      <div class="box-accuracy">
+        <span class="box-metric-label">Accuracy</span>
+        <b id="boxAcc">--</b>
+      </div>
+    </div>
+  </div>
+
+  <div class="box-mascot" id="boxMascot" data-mood="idle" aria-hidden="true">
+    <svg class="box-glove" viewBox="0 0 64 64" role="img" aria-label="Boxing glove mascot">
+      <path d="M19 8h19c8.3 0 15 6.7 15 15v7c0 5.1-2.5 9.5-6.4 12.1V52a4 4 0 0 1-4 4h-8a4 4 0 0 1-4-4v-3h-4.6C18.9 49 13 43.1 13 35.9V15c0-3.9 2.7-7 6-7z" fill="currentColor"/>
+      <path d="M19 32c-5 0-8.5 3-8.5 7.2 0 4.1 3.4 7.3 8.5 7.3H23V32z" fill="currentColor" opacity=".72"/>
+      <path d="M22 13h18v5H22z" fill="#040605" opacity=".35"/>
+      <path d="M27 21h9M27 26h9" stroke="#040605" stroke-width="2" stroke-linecap="round" opacity=".3"/>
+      <circle cx="43" cy="24" r="2.2" fill="#040605" opacity=".35"/>
+    </svg>
+  </div>
+</section>
+
+<div class="box-edge" id="edge" aria-hidden="true"></div>
+
+<section class="box-report hidden" id="boxReport" aria-labelledby="reportTitle">
+  <div class="box-report-inner">
+    <div class="report-top">
+      <div class="report-kicker">SESSION COMPLETE</div>
+      <h2 id="reportTitle">Boxing set</h2>
+      <div class="report-stars" id="reportStars"></div>
+    </div>
+
+    <div class="report-hero">
+      <div>
+        <span class="box-metric-label">Accuracy</span>
+        <div class="report-accuracy" id="reportAccuracy">--</div>
+      </div>
+      <div class="report-chest" id="reportChest"></div>
+    </div>
+
+    <div class="report-grid">
+      <div class="report-kpi"><span>Lead / rear</span><b id="reportBias">--</b></div>
+      <div class="report-kpi"><span>Fatigue</span><b id="reportFatigue">--</b></div>
+      <div class="report-kpi"><span>Guard drops</span><b id="reportGuard">--</b></div>
+      <div class="report-kpi"><span>Combo breaks</span><b id="reportBreaks">--</b></div>
+    </div>
+
+    <div class="report-actions-wrap">
+      <div class="box-panel-head"><span>Per action</span></div>
+      <div class="report-actions" id="reportActions"></div>
+    </div>
+
+    <div class="report-ghost hidden" id="reportGhost"></div>
+
+    <div class="report-buttons">
+      <button class="btn btn-primary" id="reportNext" type="button">NEXT SET</button>
+      <button class="btn" id="reportDone" type="button">DONE</button>
+    </div>
+    <div class="tiny report-tiny">Shadow-box only. Nobody punches the laptop or the sensor.</div>
+  </div>
+</section>
 
 <canvas id="canvas" style="display:none"></canvas>
 <div id="toast"></div>

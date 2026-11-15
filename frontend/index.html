@@ -5,7 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0a0c0b">
 <title>Split2nd · Reflex Lab</title>
+<link rel="icon" href="/static/assets/favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="/static/manifest.webmanifest">
 <link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/boxing.css">
 </head>
 <body>
 <header class="topbar">
@@ -16,6 +19,10 @@
     <span class="pill"><i class="dot" id="dotClients"></i><b id="clientText">0</b> CLIENTS</span>
   </div>
   <div class="top-actions">
+    <div class="mode-toggle" id="ctrlMode" role="group" aria-label="Training mode">
+      <button type="button" data-mode="racing" aria-pressed="true">Racing</button>
+      <button type="button" data-mode="boxing" aria-pressed="false">Boxing</button>
+    </div>
     <select id="playerSelect" title="Active athlete"></select>
     <button class="btn btn-sm" id="addPlayer">+ Athlete</button>
     <button class="btn btn-sm" id="copyLink">Player link</button>
@@ -25,20 +32,20 @@
 
 <main class="wrap">
   <div class="grid">
-    <section class="card col-5 drill">
+    <section class="card col-5 drill" id="drillCard">
       <div class="card-head">
         <span>Live session</span>
         <span class="chip" id="phaseChip">idle</span>
       </div>
       <div class="rt-line">
         <span class="rt-value" id="lastRt">--</span>
-        <span class="rt-unit">ms</span>
+        <span class="rt-unit" id="rtUnit">ms</span>
         <span class="rt-grade" id="lastGrade">--</span>
       </div>
       <div class="meta" id="lastMeta">No reps yet. Pick an athlete and press start.</div>
       <button class="btn-primary" id="startBtn">START REP <kbd>SPACE</kbd></button>
       <div class="controls">
-        <label>Gate
+        <label class="race-only">Gate
           <input type="range" id="gate" min="10" max="100" step="1" value="30">
           <span id="gateVal">30 cm</span>
         </label>
@@ -49,8 +56,40 @@
             <option value="local">Laptop</option>
           </select>
         </label>
-        <label><input type="checkbox" id="autoNext"> Auto-advance</label>
+        <label class="race-only"><input type="checkbox" id="autoNext"> Auto-advance</label>
+        <label class="box-only">Stance
+          <select id="stanceSelect">
+            <option value="orthodox">Orthodox</option>
+            <option value="southpaw">Southpaw</option>
+          </select>
+        </label>
+        <label class="box-only">Ghost
+          <select id="ghostSelect" title="Ghost session">
+            <option value="">Solo</option>
+          </select>
+        </label>
       </div>
+
+      <div class="boxing-panel box-only" id="boxingPanel">
+        <div class="box-panel-head">
+          <span>Boxing set</span>
+          <button class="btn btn-sm btn-ghost" id="clearCueLog" type="button">Clear</button>
+        </div>
+        <div class="box-kpis">
+          <div class="box-kpi"><span>Accuracy</span><b id="ctrlBoxAcc">--</b></div>
+          <div class="box-kpi"><span>Lead / rear</span><b id="ctrlBoxBias">--</b></div>
+          <div class="box-kpi"><span>Fatigue</span><b id="ctrlBoxFatigue">--</b></div>
+          <div class="box-kpi"><span>Reps</span><b id="ctrlBoxReps">0</b></div>
+        </div>
+        <div class="box-action-stats" id="ctrlBoxActions">
+          <div class="box-empty">Start a set to see per-action accuracy.</div>
+        </div>
+        <div class="box-cue-log" id="ctrlBoxCueLog">
+          <div class="box-empty">No cues yet. Start a set.</div>
+        </div>
+        <div class="box-summary hidden" id="ctrlBoxSummary" aria-live="polite"></div>
+      </div>
+
       <div class="hint" id="hint">The phone paints; the laptop scores.</div>
       <details class="dev">
         <summary>Dev / hardware checks</summary>
@@ -74,11 +113,11 @@
     </section>
 
     <section class="card col-3 leaderboard">
-      <div class="card-head">Leaderboard <span class="chip">racing</span></div>
+      <div class="card-head">Leaderboard <span class="chip" id="boardChip">racing</span></div>
       <ol class="board" id="board"></ol>
     </section>
 
-    <section class="card col-4 room">
+    <section class="card col-4 room race-only" id="roomCard">
       <div class="card-head">Head to head <span class="chip" id="roomChip">no room</span></div>
       <div id="roomBody"></div>
       <div class="room-actions">
@@ -92,7 +131,7 @@
       <div class="card-head">Rep log <span class="chip" id="repChip">0 reps</span></div>
       <div class="table-wrap">
         <table class="reps">
-          <thead><tr><th>Time</th><th>Athlete</th><th>RT</th><th>Grade</th><th>Z</th><th>XP</th></tr></thead>
+          <thead id="repHead"><tr><th>Time</th><th>Athlete</th><th>RT</th><th>Grade</th><th>Z</th><th>XP</th></tr></thead>
           <tbody id="repBody"><tr><td colspan="6">No reps yet.</td></tr></tbody>
         </table>
       </div>
@@ -120,6 +159,19 @@
     <span id="phoneUrl"></span>
   </div>
 </main>
+
+<div class="box-overlay hidden" id="boxOverlay">
+  <div class="bo-kicker">INCOMING CUE</div>
+  <div class="bo-main">
+    <svg class="bo-arrow" id="boArrow" viewBox="0 0 100 100" aria-hidden="true">
+      <path d="M50 7 L84 43 H62 V93 H38 V43 H16 Z"/>
+    </svg>
+    <div class="bo-word" id="boWord" aria-live="assertive">JAB</div>
+    <div class="bo-hand" id="boHand">LEAD · LEFT</div>
+  </div>
+  <div class="bo-timer"><i id="boTimerBar"></i></div>
+  <div class="bo-count" id="boCount">1.4</div>
+</div>
 
 <div class="stim-overlay hidden" id="stimOverlay">
   <div class="overlay-label" id="overlayLabel">LIGHTS OUT</div>

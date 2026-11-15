@@ -137,6 +137,8 @@ Both channels start within a few milliseconds of the same paint, so `vision RT â
 
 MediaPipe Pose (lite) is optional. If it cannot load, the engine falls back to frame-difference motion energy, which is enough for onset timing in the racing mode. Pose is what draws the skeleton and unlocks direction classification later.
 
+> MediaPipe downloads `pose_landmark_lite.tflite` on first use and caches it inside the venv. Warm it up before the venue (open `/cam` once and wait for `pose_ok: true`), or plan on the motion fallback if the laptop is offline.
+
 ---
 
 ## Scoring, XP, streaks

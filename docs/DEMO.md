@@ -17,6 +17,7 @@ cd C:\Users\Shiva\Second2nd
 - [ ] Laptop and phone on the **same** network. Prefer the Windows Mobile Hotspot.
 - [ ] Phone opens `http://<laptop-ip>:8080/` → install CA → **trust it**.
 - [ ] Phone opens `https://<laptop-ip>:8443/cam` → **Start camera** → frames counter increases.
+- [ ] `/api/health` shows `pose_ok: true` once the pose model is warm (it downloads on first use).
 - [ ] Phone opens `/play?player=<id>` → camera starts → full screen → Guided Access on.
 - [ ] Controller `/` shows `RIG COMx` green and `VISION ... fps` moving.
 - [ ] Start one rep from the controller, confirm the phone paints and a result lands.

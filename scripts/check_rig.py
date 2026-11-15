@@ -63,7 +63,11 @@ def main() -> None:
     if rig.last_error:
         print(f"last_error={rig.last_error}")
 
+    # READY is handled by the rig: it replies with DEMO 0 so the app owns
+    # the unit instead of the firmware's standalone demo loop.
     rig.send("PING")
+    rig.send("VER")
+    rig.dist()
     if args.gate:
         rig.send(f"GATE {args.gate}")
         print(f"sent GATE {args.gate}")
@@ -73,7 +77,7 @@ def main() -> None:
             rig.send(f"LED {value}")
             time.sleep(0.35)
 
-    print(f"\nLogging for {args.seconds:.0f}s. Press the encoder / wave at the sensor.\n")
+    print(f"\nLogging for {args.seconds:.0f}s. Wave at the sensor or watch DIST/DEMO/VER.\n")
     end = time.time() + args.seconds
     while time.time() < end:
         try:

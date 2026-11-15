@@ -48,6 +48,7 @@ def camera_info() -> dict[str, Any]:
         "fps": config.CAMERA_FPS,
         "backend": "DSHOW",
         "fourcc": "MJPG",
+        "mirror": bool(config.CAMERA_MIRROR),
     }
 
 
@@ -108,6 +109,10 @@ class JoinIn(BaseModel):
 
 class SimIn(BaseModel):
     kind: str = "hit"
+
+
+class MirrorIn(BaseModel):
+    enabled: bool
 
 
 # ----------------------------------------------------------------------
@@ -334,6 +339,12 @@ async def join_room(code: str, body: JoinIn) -> dict[str, Any]:
 async def set_gate(body: GateIn) -> dict[str, Any]:
     engine.set_gate(body.cm)
     return {"ok": True, "gate_cm": engine.gate_cm}
+
+
+@app.post("/api/camera/mirror")
+async def set_camera_mirror(body: MirrorIn) -> dict[str, Any]:
+    config.CAMERA_MIRROR = bool(body.enabled)
+    return {"mirror": config.CAMERA_MIRROR}
 
 
 @app.post("/api/dev/sim")

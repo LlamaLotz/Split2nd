@@ -38,6 +38,9 @@ POSE_MODEL_PATH = Path(os.getenv(
 CAMERA_WIDTH = int(os.getenv("CAMERA_WIDTH", "640"))
 CAMERA_HEIGHT = int(os.getenv("CAMERA_HEIGHT", "480"))
 CAMERA_FPS = int(os.getenv("CAMERA_FPS", "30"))
+# The Lenovo self-view feed is mirrored on this laptop. Flipping the captured
+# frame makes MediaPipe left/right match the athlete. Toggle from the page.
+CAMERA_MIRROR = os.getenv("CAMERA_MIRROR", "1") == "1"
 
 # Ultrasonic gate, centimetres from the sensor.
 GATE_CM = int(os.getenv("GATE_CM", "30"))

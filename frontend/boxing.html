@@ -67,6 +67,8 @@
   .side { border-left: 1px solid var(--line); padding: 20px; display: flex; flex-direction: column; gap: 16px; background: #0a0e0c; min-height: 0; }
   .cam { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #000; aspect-ratio: 4 / 3; }
   .cam img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cam:fullscreen { width: 100vw; height: 100vh; border: 0; border-radius: 0; aspect-ratio: auto; }
+  .cam:fullscreen img { object-fit: contain; }
   .card { border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: var(--panel); }
   .card h3 { margin: 0 0 10px; font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
   .row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid #1b2420; font-family: ui-monospace, monospace; font-size: 12px; }
@@ -139,6 +141,10 @@
     <aside class="side">
       <div class="cam"><img id="cam" src="/frame" alt="Live camera"></div>
       <div class="tiny" style="margin-top:6px">Cyan = guard target · amber = called path</div>
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <button class="ghost" id="fullCam" style="flex:1;font-size:10px;padding:7px 8px">FULLSCREEN CAMERA</button>
+        <button class="ghost" id="mirrorBtn" style="flex:1;font-size:10px;padding:7px 8px">MIRROR ON</button>
+      </div>
       <div class="card">
         <h3>Live signals</h3>
         <div class="row"><span>Ultrasonic Z</span><b id="zCard">--</b></div>

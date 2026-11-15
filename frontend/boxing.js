@@ -22,6 +22,7 @@ const S = {
   running: false,
   connected: false,
   lastTotal: 0,
+  mirror: true,
 };
 
 const $cue = $("#cueLabel");
@@ -107,6 +108,10 @@ function pollHealth() {
     const zText = z == null || z < 0 ? "--" : `${z} cm`;
     $("#zLive").textContent = zText;
     $("#zCard").textContent = zText;
+    if (h.camera && typeof h.camera.mirror === "boolean") {
+      S.mirror = h.camera.mirror;
+      $("#mirrorBtn").textContent = S.mirror ? "MIRROR ON" : "MIRROR OFF";
+    }
     if (!S.connected) {
       const ok = !!r.connected;
       setStatus(r.backend || "offline", ok ? "ok" : "");
@@ -298,6 +303,26 @@ $("#overlayStart").onclick = startSession;
 $("#overlayClose").onclick = hideOverlay;
 $("#againBtn").onclick = () => {
   location.reload();
+};
+$("#fullCam").onclick = () => {
+  const cam = document.querySelector(".cam");
+  if (document.fullscreenElement) document.exitFullscreen?.();
+  else cam?.requestFullscreen?.();
+};
+document.addEventListener("fullscreenchange", () => {
+  const b = $("#fullCam");
+  if (b) b.textContent = document.fullscreenElement ? "EXIT FULLSCREEN" : "FULLSCREEN CAMERA";
+});
+$("#mirrorBtn").onclick = async () => {
+  S.mirror = !S.mirror;
+  $("#mirrorBtn").textContent = S.mirror ? "MIRROR ON" : "MIRROR OFF";
+  try {
+    await fetch("/api/camera/mirror", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: S.mirror }),
+    });
+  } catch {}
 };
 $("#stanceBtn").onclick = () => {
   S.stance = S.stance === "orthodox" ? "southpaw" : "orthodox";

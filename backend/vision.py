@@ -273,6 +273,10 @@ class VisionEngine:
             if not ok or frame is None:
                 time.sleep(0.02)
                 continue
+            # Match MediaPipe's unmirrored convention: physical right hand
+            # maps to landmark 16, so "right hook" is the athlete's right.
+            if getattr(config, "CAMERA_MIRROR", False):
+                frame = cv2.flip(frame, 1)
             t = time.perf_counter()
             self.local_seen_at = t
             # In auto mode the phone is the primary sensor. Do not let the

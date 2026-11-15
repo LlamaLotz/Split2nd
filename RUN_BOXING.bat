@@ -2,7 +2,8 @@
 title Split2nd Boxing
 cd /d "%~dp0"
 set GATE_CM=60
-set PREVIEW_FPS=15
+set PREVIEW_FPS=20
+set CAMERA_MIRROR=1
 echo.
 echo  Split2nd Boxing
 echo  Open: http://localhost:8443/boxing

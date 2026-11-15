@@ -28,64 +28,40 @@ The Uno never talks to the iPhone. iOS exposes no CDC-ACM serial port to apps an
 
 ---
 
-## Quick start (Windows demo laptop)
+## Quick start (laptop-only demo)
+
+The demo rig is the **laptop integrated webcam + laptop screen**; the Arduino/ultrasonic plugs into the laptop. No phone and no certificate are required. `localhost` is a secure context, so the camera works over plain HTTP.
 
 ```powershell
 cd C:\Users\Shiva\Second2nd
 py -3.12 -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 
-# one-time TLS material (add every IP the phone will use)
-.venv\Scripts\python scripts\make_certs.py --ip 192.168.0.80 --ip 192.168.137.1
-
-# trust the CA on this laptop
-certutil -addstore -user Root certs\ca.crt
-
 # optional demo history so the streak/leaderboard screens look alive
 .venv\Scripts\python scripts\seed.py
 
+# laptop camera + laptop screen, no TLS
+.venv\Scripts\python scripts\run.py --no-tls --port 8000
+```
+
+Open **`http://localhost:8000/`** on the laptop (use `localhost`, not the LAN IP, or the browser may block the camera). The controller page is the arena: press **START REP** / **START SET**, full-screen it, and the athlete stands 0.8–1.5 m in front of the laptop.
+
+- **Camera is black or ~10 fps?** Open the ThinkPad camera shutter (the slider above the lens) and add light. Auto-exposure in a dark room drops it to 10 fps; with light it should reach 30. Run `.venv\Scripts\python scripts\check_camera.py --seconds 5` while the server is stopped.
+- **Arduino/ultrasonic:** upload `reflex_fw/reflex_fw.ino` in the Arduino IDE, close the Serial Monitor, plug USB-B → USB-A into the laptop, then run `.venv\Scripts\python test_rig.py COMx`. Restart `run.py`; `RIG=auto` detects it. Until then it runs `FakeRig`.
+- **No camera?** Add `--vision fake`; **no Arduino?** Add `--rig fake`.
+
+### Optional phone path
+
+The phone camera is still supported, but it is no longer the demo path. It needs HTTPS and a trusted CA:
+
+```powershell
+.venv\Scripts\python scripts\make_certs.py --ip 192.168.0.80
+certutil -addstore -user Root certs\ca.crt
 .venv\Scripts\python scripts\run.py
+# phone: https://192.168.0.80:8443/play?player=<id>
 ```
 
-Open on the laptop: `https://192.168.0.80:8443/`
-Open on the phone: `https://192.168.0.80:8443/play?player=<id>`
-Camera/HTTPS gate: `https://192.168.0.80:8443/cam`
-
-The runner prints the exact URLs. If the venue Wi-Fi looks hostile, turn on the **Windows Mobile Hotspot**, connect the phone, and use `https://192.168.137.1:8443/play` (that IP is already in the generated cert).
-
-> If `openssl` is not on PATH on Windows, generate the certs in WSL/Linux with
-> `python scripts/make_certs.py --ip 192.168.0.80 --ip 192.168.137.1` and copy the
-> `certs/` folder to the Windows checkout. The certs are machine-independent.
->
-> Allow Python through Windows Defender on **Private** networks, or the phone will
-> time out even with the right URL.
-
-### iOS trust, once per device
-
-The easiest path is the tiny plain-HTTP CA page (no certificate warning):
-
-```powershell
-.venv\Scripts\python scripts\serve_ca.py
-```
-
-On the phone, open `http://<laptop-ip>:8080/`, download the profile, install it, then enable it under Settings → General → About → Certificate Trust Settings.
-
-Or open `https://<laptop-ip>:8443/ca.crt` and accept the warning first.
-
-1. In Safari, open the CA page.
-2. Settings → **Profile Downloaded** → Install.
-3. Settings → General → About → **Certificate Trust Settings** → enable *Split2nd Local CA*.
-4. Reload `/play`, tap **Enable camera**.
-
-If the camera does not start, open `/cam` first. It prints whether the page is a secure context, whether `getUserMedia` exists, and whether frames are reaching the server.
-
-### No hardware yet? Run everything fake
-
-```powershell
-.venv\Scripts\python scripts\run.py --vision fake --rig fake --no-tls
-```
-
-Plain HTTP on `http://127.0.0.1:8443` runs the full state machine, UI, XP, leaderboard and versus mode with synthetic motion. The phone camera needs HTTPS; the fake mode does not.
+The CA install page is `http://<laptop-ip>:8080/` (`scripts\serve_ca.py`). If the phone is not used, ignore certs and `/play` entirely.
 
 ### Useful bring-up scripts
 
@@ -104,14 +80,14 @@ Upload `reflex_fw/reflex_fw.ino` from the Arduino IDE first, then close the IDE 
 
 | Path | Role | What it does |
 |---|---|---|
-| `/` | controller | athlete picker, start/stop, gate, camera source, live preview, leaderboard, rep log, evidence, rooms, dev controls |
-| `/play` | player phone | camera permission, fullscreen lights, result/XP/tip, ghost bar, self-start, versus |
+| `/` | controller + arena | athlete picker, start/stop, gate, camera, live preview, arena overlay, leaderboard, rep log, evidence, rooms, dev controls |
+| `/play` | optional phone player | camera permission, fullscreen lights, result/XP/tip, ghost bar, self-start, versus |
 | `/cam` | diagnostic | HTTPS/CA/getUserMedia/WS/frame-rate check |
-| `/video` | MJPEG | annotated preview for the controller |
+| `/video` | MJPEG | annotated camera preview (skeleton on the laptop path) |
 | `/api/*` | REST | health, players, leaderboard, history, evidence, rooms |
 | `/ws` | WebSocket | all realtime traffic |
 
-The player link is `https://<host>/play?player=<player_id>&room=<CODE>`. Use **Player link** on the controller to copy it.
+The laptop `/` page is the demo surface. The phone link is optional: `https://<host>/play?player=<player_id>&room=<CODE>`.
 
 ---
 

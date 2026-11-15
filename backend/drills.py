@@ -286,13 +286,14 @@ class DrillEngine:
         self.source = source
 
         delay = random.randint(config.DELAY_MIN_MS, config.DELAY_MAX_MS)
+        player = self.store.get_player(self.player_id) if self.player_id else None
         payload = {
             "type": "schedule",
             "delay_ms": delay,
             "lights": config.LIGHTS_COUNT,
             "light_interval_ms": config.LIGHT_INTERVAL_MS,
             "player_id": self.player_id,
-            "player_name": self.store.get_player(self.player_id)["name"] if self.player_id else "",
+            "player_name": player["name"] if player else "",
             "rep": self.rep_no,
             "room": self.room.code if self.room else None,
             "source": source,
@@ -377,7 +378,8 @@ class DrillEngine:
             if now >= window_start and self.source:
                 raw = self.vision.samples_for(self.source, since=window_start - 0.6)
                 pairs = [(s.t_recv, s.speed) for s in raw]
-                hit = detect_onset(pairs, window_start, floor=self.vision.onset_floor())
+                hit = detect_onset(pairs, window_start,
+                                   floor=self.vision.onset_floor(self.source))
                 if hit:
                     await self._abort_false_start("jump start")
             return
@@ -428,7 +430,7 @@ class DrillEngine:
         for s in raw:
             t = s.t + self.offset if (self.source == "remote" and self.drill_clock == "backend") else s.t
             pairs.append((t, s.speed))
-        hit = detect_onset(pairs, self.t0, floor=self.vision.onset_floor())
+        hit = detect_onset(pairs, self.t0, floor=self.vision.onset_floor(self.source))
         return hit[0] if hit else None
 
     # ------------------------------------------------------------------
@@ -695,6 +697,7 @@ class DrillEngine:
             "type": "state",
             "phase": self.phase,
             "msg": self.msg,
+            "player_id": self.player_id,
             "player": player,
             "source": self.source,
             "display": self.display_role,

@@ -307,6 +307,12 @@ async def websocket_endpoint(ws: WebSocket, role: str = "controller",
             if kind == "frame":
                 client.camera_ready = True
                 client.last_frame_at = time.time()
+                # A second phone or the /cam diagnostic must not pollute a rep.
+                if engine.phase in ("arm", "wait", "response"):
+                    if client.role == "camera":
+                        continue
+                    if engine.player_id and client.player_id and client.player_id != engine.player_id:
+                        continue
                 jpeg = msg.get("jpeg") or ""
                 if jpeg:
                     vision.submit_remote(jpeg, float(msg.get("ts", 0)), str(msg.get("clock", "")))
@@ -348,7 +354,8 @@ async def websocket_endpoint(ws: WebSocket, role: str = "controller",
                     await ws.send_json({"type": "fault", "message": "Pick a player first"})
                     continue
                 res = await engine.start(pid, msg.get("room") or client.room,
-                                         source=msg.get("source"), auto=bool(msg.get("auto")))
+                                         source=msg.get("source"),
+                                         auto=(bool(msg["auto"]) if "auto" in msg else engine.auto))
                 if not res.get("ok"):
                     await ws.send_json({"type": "fault", "message": res.get("error", "cannot start")})
             elif cmd == "stop":

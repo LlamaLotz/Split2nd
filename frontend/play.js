@@ -14,6 +14,7 @@ const S = {
   cameraOn: false,
   joinedRoom: false,
   running: false,
+  active: true,
   timers: [],
   frames: 0,
   bytes: 0,
@@ -200,7 +201,7 @@ function requestFrame() {
 
 function onFrame(now) {
   if (!S.running) return;
-  const interval = S.phase === "idle" ? 260 : 33;
+  const interval = (!S.active || S.phase === "idle") ? 260 : 33;
   if (now - S.lastSent >= interval) {
     sendFrame(now);
     S.lastSent = now;
@@ -255,6 +256,23 @@ function onState(msg) {
   S.state = msg;
   if (msg.room) { S.room = msg.room; renderRoomPill(); }
   if (msg.player) { S.player = msg.player; renderHud(msg.player); }
+  if (typeof msg.player_id === "string") S.activePlayerId = msg.player_id;
+
+  if (msg.room?.status === "done") {
+    S.active = false;
+    status(`${msg.room.winner || "MATCH"} WINS`, true);
+    hideActions();
+    return;
+  }
+
+  const myTurn = !msg.room || msg.room.turn === PLAYER_ID;
+  S.active = myTurn;
+  if (!myTurn) {
+    status(`WAITING FOR ${(msg.room?.turn_name || "OPPONENT").toUpperCase()}`);
+    setLightsOff();
+    hideActions();
+    return;
+  }
 
   if (S.phase === "arm") {
     clearResult();
@@ -280,6 +298,7 @@ function runLights(msg) {
   clearTimers();
   clearResult();
   setLightsOff();
+  S.active = true;
   status("LIGHTS OUT", false);
   const lights = $$("#pLights .light");
   const n = Math.min(msg.lights || 5, lights.length);

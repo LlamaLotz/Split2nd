@@ -87,6 +87,7 @@ class VisionEngine:
         self._pose = None
         self._fake_onset_at: float | None = None
         self._fake_started = False
+        self._floors: dict[str, float] = {}
 
     # ------------------------------------------------------------------
     # lifecycle
@@ -206,6 +207,7 @@ class VisionEngine:
                 self.last_speed = speed
                 self.last_floor = config.ONSET_FLOOR_FAKE
                 self.last_source = "fake"
+                self._floors["fake"] = config.ONSET_FLOOR_FAKE
             time.sleep(1.0 / 60.0)
 
     # ------------------------------------------------------------------
@@ -255,6 +257,7 @@ class VisionEngine:
                 self.last_speed = speed
                 self.last_floor = floor
                 self.last_source = source
+                self._floors[source] = floor
                 self.frames += 1
                 self._proc_ms = 0.85 * self._proc_ms + 0.15 * ((now - started) * 1000.0)
             self._maybe_preview(frame, landmarks)
@@ -384,8 +387,10 @@ class VisionEngine:
                     return s.speed
         return 0.0
 
-    def onset_floor(self) -> float:
+    def onset_floor(self, source: str | None = None) -> float:
         with self.lock:
+            if source and source in self._floors:
+                return self._floors[source]
             return self.last_floor
 
     def hold_still(self, source: str, window: float = config.HOLD_STILL_S) -> bool:
@@ -396,11 +401,11 @@ class VisionEngine:
         speeds = [s.speed for s in samples]
         mean = sum(speeds) / len(speeds)
         peak = max(speeds)
+        floor = self.onset_floor(source)
         if source == "remote":
-            floor = self.onset_floor()
             thr = max(config.STILL_MAX_POSE, floor * 2.5)
         elif source == "local":
-            thr = config.STILL_MAX_MOTION if not self.pose_ok else config.STILL_MAX_POSE
+            thr = max(config.STILL_MAX_POSE, floor * 2.5) if self.pose_ok else config.STILL_MAX_MOTION
         else:
             thr = config.STILL_MAX_POSE
         return mean < thr and peak < thr * 1.8

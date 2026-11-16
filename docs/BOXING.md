@@ -15,7 +15,7 @@ A boxing set is **10 cues**. Each cue:
 2. The controller paints the cue (the arena UI) and sends `painted` at the paint time.
 3. The backend anchors `t0` on the paint ack and sends `STIM` to the Arduino. The laptop webcam is already running.
 4. The athlete performs the cue. Camera frames land in the vision sample stream with **backend `perf_counter` timestamps**.
-5. At `t0 + window_ms` (1.4 s), the backend takes the pose window, classifies the action, finds the onset, scores it, stores it, and broadcasts `result`.
+5. At `t0 + window_ms` (1.5 s), the backend grades the fastest wrist/head movement after GO (a 0.6 s window centred on its peak), finds its onset, scores it, stores it, and broadcasts `result`. A block is graded on the last 0.6 s of the response.
 6. The next cue is armed automatically after the result dwell. After cue 10, `session_end` carries the report, stars, chest, mascot, and the one evidence-backed tip for the session.
 
 The racing mode is unchanged. Boxing does not use the encoder or buttons; the real firmware does not have them.
@@ -117,6 +117,8 @@ All nine catalog actions are represented. No cue is excluded on synthetic eviden
 
 For every frame in the response window, `backend/boxing.py` parses the image landmarks `(x, y, z, visibility)` and the world landmarks `(x, y, z)`. World landmarks are preferred when at least 60% of frames have them; otherwise image landmarks are used.
 
+For scoring, `dominant_movement()` first finds the fastest moving part after GO (left wrist, right wrist, or head) and takes a 0.6 s window centred on its peak speed. Pre-GO frames are used only for the onset baseline. This keeps the previous rep, a slow guard raise, and a post-punch reset out of the current classification. The cue's own hand is preferred when it is moving at least 60% as fast as the fastest part, so a guard-hand twitch cannot steal a rear-hand uppercut; a genuinely wrong-hand punch still wins when the called hand barely moves. The block cue is graded on the last 0.6 s of the response instead, because it is a held posture.
+
 Coordinates are translated to the shoulder centre and divided by the **median shoulder width** in the same coordinate system. That makes the thresholds stance-, distance-, and camera-scale-independent.
 
 Per hand (left and right):
@@ -138,21 +140,21 @@ Global:
 - block fractions: both wrists above the shoulders, both wrists near the head, both wrists above the elbows, both wrists at/above the nose line
 - block peak wrist speed and combined wrist path
 
-A window with fewer than `min_frames = 6` pose frames is `unknown`. At 10 fps, a 1.4 s window still carries about 14 frames plus the pre-roll.
+A window with fewer than `min_frames = 6` pose frames is `unknown`. At 10 fps, a 1.5 s window still carries about 14 frames plus the pre-roll.
 
 ---
 
 ## 4. Rules and confidence
 
-Every candidate has a **primary condition**. A candidate whose primary condition is false is discarded, even if secondary conditions happen to be true. Confidence is the fraction of that candidate's conditions that were met; below `0.45` is `unknown`.
+Every candidate has a **primary condition**. A candidate whose primary condition is false is discarded, even if secondary conditions happen to be true. Confidence is the fraction of that candidate's conditions that were met; below `0.25` is `unknown`.
 
 | action | primary condition | other conditions |
 |---|---|---|
-| `jab` / `cross` | depth drop ≥ 0.45 shoulder-widths | elbow max ≥ 150°, travel ≥ 0.50, forward-hand dominance, forward axis dominance |
-| `hook_l` / `hook_r` | cross-body x travel ≥ 0.30 | elbow at max travel 70–120°, vertical change ≤ 0.35, travel ≥ 0.40, cross-body dominance |
-| `uppercut_l` / `uppercut_r` | start below shoulder ≥ 0.10 **and** rise ≥ 0.35 | elbow at highest point ≤ 135°, travel ≥ 0.40, rise dominance |
+| `jab` / `cross` | depth drop ≥ 0.30 shoulder-widths, or elbow extension ≥ 145° + travel ≥ 0.20 when depth is unreliable | elbow max ≥ 145°, travel ≥ 0.22, forward-hand dominance, forward axis dominance |
+| `hook_l` / `hook_r` | cross-body x travel ≥ 0.14 **and** horizontal travel dominates the rise | elbow at max travel 70–150°, vertical change ≤ 0.50, travel ≥ 0.22, cross-body dominance |
+| `uppercut_l` / `uppercut_r` | start below shoulder ≥ −0.50 **and** rise ≥ 0.16 **and** rise dominates cross-body travel | elbow at highest point ≤ 150°, travel ≥ 0.22, rise dominance |
 | `slip_l` / `slip_r` | head x displacement ≥ 0.35 | lateral-dominant head movement, wrists within 1.10 of the head, head-led motion |
-| `block` | both wrists above the shoulders ≥ 70% **and** both near the head ≥ 70% | above elbows, above nose line, head x/y net displacement ≤ 0.20/0.25, wrist speed ≤ 4.0, wrist path ≤ 6.0 |
+| `block` | both wrists above the shoulders ≥ 70% **and** both near the head ≥ 70% **and** wrist speed ≤ 3.0 | above elbows, above nose line, head x/y net displacement ≤ 0.20/0.25, wrist path ≤ 6.0 |
 
 The exact tunable block (the only place to change thresholds):
 
@@ -160,21 +162,21 @@ The exact tunable block (the only place to change thresholds):
 THRESHOLDS = {
     "min_frames": 6,
     "min_visibility": 0.25,
-    "straight_depth_drop": 0.45,
-    "straight_elbow_extended": 150.0,
-    "straight_travel": 0.50,
+    "straight_depth_drop": 0.30,
+    "straight_elbow_extended": 145.0,
+    "straight_travel": 0.22,
     "straight_depth_lead": 0.10,
     "straight_forward_ratio": 0.50,
-    "hook_cross_travel": 0.30,
+    "hook_cross_travel": 0.14,
     "hook_elbow_min": 70.0,
-    "hook_elbow_max": 120.0,
-    "hook_vertical_max": 0.35,
-    "hook_travel": 0.40,
+    "hook_elbow_max": 150.0,
+    "hook_vertical_max": 0.50,
+    "hook_travel": 0.22,
     "hook_cross_lead": 0.05,
-    "uppercut_start_below": 0.10,
-    "uppercut_rise": 0.35,
-    "uppercut_elbow_max": 135.0,
-    "uppercut_travel": 0.40,
+    "uppercut_start_below": -0.50,
+    "uppercut_rise": 0.16,
+    "uppercut_elbow_max": 150.0,
+    "uppercut_travel": 0.22,
     "uppercut_rise_lead": 0.10,
     "slip_head_dx": 0.35,
     "slip_head_dy_ratio": 0.80,
@@ -183,7 +185,7 @@ THRESHOLDS = {
     "slip_head_share": 0.50,
     "block_wrist_above": 0.10,
     "block_wrist_face": 0.90,
-    "block_max_wrist_speed": 4.00,
+    "block_max_wrist_speed": 3.00,
     "block_max_wrist_path": 6.00,
     "block_head_dx": 0.20,
     "block_head_dy": 0.25,
@@ -194,6 +196,8 @@ THRESHOLDS = {
     "onset_baseline_s": 0.35,
     "exec_speed_ratio": 0.20,
     "exec_floor": 0.30,
+    "sensor_straight_drop_cm": 4.0,
+    "sensor_min_drop_cm": 2.0,
 }
 ```
 
@@ -278,7 +282,7 @@ Server → controller (the display client only). Racing schedules are unchanged;
     "cue": "Jab - lead hand, straight out, elbow extends",
     "stance": "orthodox"
   },
-  "window_ms": 1400,
+  "window_ms": 1500,
   "progress": {"done": 0, "total": 10, "correct": 0, "accuracy": 0.0},
   "ghost_session_id": null,
   "ghost": []
@@ -550,7 +554,7 @@ VISION=fake RIG=fake python -m uvicorn backend.main:app --port 8460
 
 **Single-camera gross action, not a punch meter.** A 2D/3D pose estimate can say "the wrist extended forward while the elbow opened" but it cannot measure punch force, impact, or head acceleration. MediaPipe world landmarks are model estimates, not depth-sensor measurements. Occlusion (hand behind the head, hand outside the frame), loose clothing, low light, and a camera above/below chest height all change the geometry. Cite this in the pitch: Manoharan et al. 2025 found video-only punch classification degraded by motion blur and occlusion and needed synchronized IMU for ~92% classification; this build is coarser still — a rule-based gross-action label from one camera.
 
-**Frame rate.** The laptop camera may run at 10–30 fps. The window is 1.4 s, `min_frames` is 6, and onset needs 3 consecutive frames. At 10 fps the reaction time is quantized to ~100 ms and the block may have no measurable onset (handled as a correct block with `reaction_ms: null`). Do not compare 10 fps and 30 fps reaction times as if they were the same measurement.
+**Frame rate.** The laptop camera may run at 10–30 fps. The window is 1.5 s, `min_frames` is 6, and onset needs 3 consecutive frames. At 10 fps the reaction time is quantized to ~100 ms and the block may have no measurable onset (handled as a correct block with `reaction_ms: null`). Do not compare 10 fps and 30 fps reaction times as if they were the same measurement.
 
 **Mirroring and stance.** The classifier derives the athlete's spatial left/right from the shoulder ordering in the pose frame. Do not horizontally flip the frame before MediaPipe; a flipped image can swap the model's left/right labels and make jab/cross and slip_l/slip_r disagree with the cue. The laptop webcam is used unmirrored for this reason. If the camera is mounted behind the athlete or the athlete faces away, the shoulder-order rule still handles the spatial direction, but the pose labels themselves may not; validate before the demo.
 

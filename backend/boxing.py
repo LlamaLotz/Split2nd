@@ -129,12 +129,12 @@ DEFAULT_SET: list[str] = [
 DEFENSIVE = {"slip_l", "slip_r", "block"}
 PUNCHES = {"jab", "cross", "hook_l", "hook_r", "uppercut_l", "uppercut_r"}
 
-WINDOW_MS = 1400
+WINDOW_MS = 1500
 DELAY_MIN_MS = 500
 DELAY_MAX_MS = 800
 GREEN_MS = 380
 YELLOW_MS = 500
-CONFIDENCE_MIN = 0.45
+CONFIDENCE_MIN = 0.25
 
 # ----------------------------------------------------------------------
 # Every tunable threshold lives here.  Distances are in shoulder-widths,
@@ -157,7 +157,7 @@ THRESHOLDS: dict[str, float] = {
     "hook_travel": 0.22,
     "hook_cross_lead": 0.05,
     # uppercuts: start below the shoulder, rise, elbow stays flexed
-    "uppercut_start_below": -0.05,
+    "uppercut_start_below": -0.50,
     "uppercut_rise": 0.16,
     "uppercut_elbow_max": 150.0,
     "uppercut_travel": 0.22,
@@ -602,6 +602,79 @@ def window_visibility(frames: Sequence[dict[str, Any]],
 # ----------------------------------------------------------------------
 # classification
 # ----------------------------------------------------------------------
+def held_window(frames: Sequence[dict[str, Any]], t0: float,
+                hold_s: float = 0.60) -> list[dict[str, Any]]:
+    """Frames for a held posture (block) at the end of the response.
+
+    A block is static, so grade the last ``hold_s`` seconds rather than the
+    whole window; that ignores the raise into guard and any earlier motion.
+    """
+    parsed = _parse_frames(frames)
+    if not parsed:
+        return []
+    end = parsed[-1]["t"]
+    start = max(t0, end - hold_s)
+    return [f for f in parsed if f["t"] >= start]
+
+
+def dominant_movement(frames: Sequence[dict[str, Any]], t0: float,
+                      pad_before: float = 0.30,
+                      pad_after: float = 0.35,
+                      prefer: str | None = None) -> tuple[
+                          list[dict[str, Any]], str | None, float | None,
+                          int | None]:
+    """Frames around the fastest wrist/head motion after GO.
+
+    Returns ``(window, part, peak_t, onset_ms)``.  The window is centred on
+    the peak speed of the fastest-moving part, not the first motion after GO:
+    a slow guard raise then a fast punch must classify the punch, and a
+    post-punch reset must not bleed into the next rep.  ``onset_ms`` is the
+    first frame of that part at 35% of its peak speed, so a slow drift before
+    the punch is not reported as a 50 ms reaction.
+    """
+    parsed = _parse_frames(frames)
+    post = [f for f in parsed if f["t"] >= t0]
+    if len(post) < 2:
+        return post, None, None, None
+    _, series = _extract(post)
+    if len(series) < 2:
+        return post, None, None, None
+
+    peaks = {
+        "left": max(series, key=lambda s: float(s.get("left_speed") or 0.0)),
+        "right": max(series, key=lambda s: float(s.get("right_speed") or 0.0)),
+        "head": max(series, key=lambda s: float(s.get("head_speed") or 0.0)),
+    }
+    speeds = {k: float(row.get(f"{k}_speed") or 0.0)
+              for k, row in peaks.items()}
+    overall = max(speeds, key=lambda k: speeds[k])
+    part = overall
+    # Prefer the hand the cue actually calls for. A guard-hand twitch must not
+    # steal a rear-hand uppercut, but a genuinely wrong-hand punch still wins
+    # when the expected hand barely moves.
+    if prefer in peaks and speeds[prefer] >= 0.60 * speeds[overall]:
+        part = prefer
+    peak_row = peaks[part]
+    peak_speed = speeds[part]
+    if peak_speed < THRESHOLDS["onset_floor"]:
+        return post, None, None, None
+
+    peak_t = float(peak_row["t"])
+    start = max(t0, peak_t - pad_before)
+    end = peak_t + pad_after
+    window = [f for f in parsed if start <= f["t"] <= end]
+
+    threshold = max(THRESHOLDS["onset_floor"], peak_speed * 0.35)
+    onset: int | None = None
+    for row in series:
+        if row["t"] < t0 or row["t"] > peak_t:
+            continue
+        if float(row.get(f"{part}_speed") or 0.0) >= threshold:
+            onset = int(round((row["t"] - t0) * 1000.0))
+            break
+    return window, part, peak_t, onset
+
+
 def _frac(conditions: Sequence[bool]) -> float:
     return sum(1 for c in conditions if c) / max(1, len(conditions))
 
@@ -657,6 +730,7 @@ def _hook_candidates(features: dict[str, Any]) -> list[dict[str, Any]]:
         across = float(h.get("across") or 0.0)
         elbow = h.get("elbow_at_max_travel")
         dy = abs(float(h.get("dy") or 0.0))
+        rise = float(h.get("rise") or 0.0)
         travel = float(h.get("travel") or 0.0)
         conds = [
             across >= THRESHOLDS["hook_cross_travel"],
@@ -671,7 +745,7 @@ def _hook_candidates(features: dict[str, Any]) -> list[dict[str, Any]]:
             "pattern": "hook",
             "confidence": _frac(conds),
             "conditions": conds,
-            "primary": bool(conds[0]),
+            "primary": bool(conds[0] and across >= 0.75 * rise),
         })
     return out
 
@@ -683,6 +757,7 @@ def _uppercut_candidates(features: dict[str, Any]) -> list[dict[str, Any]]:
         other = features.get("right" if side == "left" else "left") or {}
         elbow = h.get("elbow_at_min_y")
         rise = float(h.get("rise") or 0.0)
+        across = float(h.get("across") or 0.0)
         start_below = float(h.get("start_below") or 0.0)
         travel = float(h.get("travel") or 0.0)
         conds = [
@@ -698,7 +773,11 @@ def _uppercut_candidates(features: dict[str, Any]) -> list[dict[str, Any]]:
             "pattern": "uppercut",
             "confidence": _frac(conds),
             "conditions": conds,
-            "primary": bool(conds[0] and conds[1]),
+            # Vertical dominance separates an uppercut from a high hook; a
+            # guard-height uppercut starts above the shoulder, so it cannot
+            # require the hand to begin below it.
+            "primary": bool(conds[0] and conds[1]
+                            and rise >= 0.75 * abs(across)),
         })
     return out
 
@@ -857,6 +936,11 @@ def _expected_part(cue: str, stance: str) -> str:
     return resolve_hand(cue, stance)
 
 
+def expected_part(cue: str, stance: str = "orthodox") -> str:
+    """Public alias for the body part a cue is asking the athlete to move."""
+    return _expected_part(cue, stance)
+
+
 def onset_ms(frames: Sequence[dict[str, Any]], cue: str, stance: str = "orthodox",
              t0: float = 0.0) -> int | None:
     """First post-t0 frame where the expected body part clearly moves.
@@ -937,6 +1021,29 @@ def score_cue(cue: str, detection: dict[str, Any],
     if action == cue:
         return "correct", execution
     return "wrong", execution
+
+
+def scripted_outcome(cue: str, stance: str, detection: dict[str, Any],
+                     reaction_ms: int | None,
+                     execution_ms: int | None) -> tuple[
+                         dict[str, Any], str, int | None, int | None]:
+    """Demo script: nine cues correct, the right uppercut always wrong.
+
+    Keeps the real ``features`` for the debug log but replaces the action,
+    hand, confidence, outcome, and timings. Never used unless
+    ``BOXING_SCRIPTED`` is enabled.
+    """
+    out = dict(detection)
+    if cue == "uppercut_r":
+        out.update({"action": "uppercut_l", "hand": "left",
+                    "confidence": 0.62})
+        return out, "wrong", 340, 210
+    out.update({
+        "action": cue,
+        "hand": resolve_hand(cue, stance),
+        "confidence": 0.94,
+    })
+    return out, "correct", 320, 200
 
 
 def grade_for(reaction_ms: int | None, correct: bool) -> str:

@@ -65,10 +65,45 @@
   .result .headline { font-size: 24px; font-weight: 800; margin: 5px 0 6px; }
   .result .tip { font-size: 15px; color: #cfd8d3; line-height: 1.4; }
   .side { border-left: 1px solid var(--line); padding: 20px; display: flex; flex-direction: column; gap: 16px; background: #0a0e0c; min-height: 0; }
-  .cam { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #000; aspect-ratio: 4 / 3; }
+  .cam { position: relative; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #000; aspect-ratio: 4 / 3; }
   .cam img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .cam:fullscreen { width: 100vw; height: 100vh; border: 0; border-radius: 0; aspect-ratio: auto; }
   .cam:fullscreen img { object-fit: contain; }
+  .cam-overlay { display: none; }
+  .cam:fullscreen .cam-overlay {
+    display: block; position: absolute; inset: 0; pointer-events: none;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .fs-cue {
+    position: absolute; left: 3.5vw; bottom: 20vh; max-width: 60vw;
+    font-size: clamp(54px, 8vw, 132px); line-height: .9; font-weight: 900;
+    letter-spacing: -.04em; color: var(--text); text-shadow: 0 4px 34px #000, 0 1px 3px #000;
+  }
+  .fs-cue.go { color: var(--green); }
+  .fs-cue.bad { color: var(--red); }
+  .fs-cue.good { color: var(--green); }
+  .fs-panel {
+    position: absolute; right: 2.5vw; bottom: 3vh; width: min(430px, 82vw);
+    border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px;
+    background: rgba(8, 11, 10, .82); backdrop-filter: blur(8px);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, .45);
+  }
+  .fs-panel .fs-line {
+    display: flex; justify-content: space-between; gap: 12px; padding: 5px 0;
+    border-bottom: 1px solid #1b2420; font-family: ui-monospace, monospace;
+    font-size: 12px; color: var(--dim);
+  }
+  .fs-panel .fs-line b { color: var(--text); font-weight: 700; }
+  .fs-panel .fs-result {
+    margin-top: 10px; font-size: clamp(17px, 1.5vw, 22px); font-weight: 800;
+    line-height: 1.25; color: var(--text);
+  }
+  .fs-panel .fs-tip {
+    margin-top: 6px; font-size: clamp(12px, 1vw, 15px); line-height: 1.4; color: #cfd8d3;
+  }
+  .cam-block { display: flex; flex-direction: column; gap: 8px; }
+  .cam-buttons { display: flex; gap: 6px; }
+  .cam-buttons button { flex: 1; font-size: 10px; padding: 7px 8px; }
   .card { border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: var(--panel); }
   .card h3 { margin: 0 0 10px; font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
   .row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid #1b2420; font-family: ui-monospace, monospace; font-size: 12px; }
@@ -102,9 +137,18 @@
   .stars { color: var(--amber); font-size: 30px; letter-spacing: .08em; margin: 8px 0; }
   .tiny { font-family: ui-monospace, monospace; font-size: 10px; color: var(--dim); }
   @media (max-width: 900px) {
-    main { grid-template-columns: 1fr; }
-    .side { display: none; }
-    .arena { padding: 22px; }
+    main { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
+    .side {
+      display: flex; flex-direction: row; align-items: flex-start; gap: 12px;
+      border-left: 0; border-top: 1px solid var(--line);
+      padding: 10px 14px; overflow: hidden;
+    }
+    .side .card, .side .tiny { display: none; }
+    .cam-block { width: min(48vw, 280px); flex: 0 0 auto; }
+    .cam-buttons button { font-size: 9px; padding: 6px 6px; }
+    .arena { padding: 16px 20px; overflow-y: auto; }
+    .result { margin-top: 14px; }
+    #cueLabel { font-size: clamp(44px, 11vw, 96px); }
   }
 </style>
 </head>
@@ -139,11 +183,25 @@
     </section>
 
     <aside class="side">
-      <div class="cam"><img id="cam" src="/frame" alt="Live camera"></div>
-      <div class="tiny" style="margin-top:6px">Cyan = guard target · amber = called path</div>
-      <div style="display:flex;gap:6px;margin-top:8px">
-        <button class="ghost" id="fullCam" style="flex:1;font-size:10px;padding:7px 8px">FULLSCREEN CAMERA</button>
-        <button class="ghost" id="mirrorBtn" style="flex:1;font-size:10px;padding:7px 8px">MIRROR ON</button>
+      <div class="cam-block">
+        <div class="cam">
+          <img id="cam" src="/frame" alt="Live camera">
+          <div class="cam-overlay">
+            <div class="fs-cue" id="fsCue">READY</div>
+            <div class="fs-panel">
+              <div class="fs-line"><span>NEXT / RUNNING</span><b id="fsCueName">--</b></div>
+              <div class="fs-line"><span>CUE · ACCURACY</span><b id="fsProgress">0/10 · --</b></div>
+              <div class="fs-line"><span>LIVE SEES</span><b id="fsLive">--</b></div>
+              <div class="fs-result" id="fsResult">Press START. Throw only at the big cue.</div>
+              <div class="fs-tip" id="fsTip">Cyan = guard target · amber = called path.</div>
+            </div>
+          </div>
+        </div>
+        <div class="tiny">Cyan = guard target · amber = called path</div>
+        <div class="cam-buttons">
+          <button class="ghost" id="fullCam">FULLSCREEN CAMERA</button>
+          <button class="ghost" id="mirrorBtn">MIRROR OFF</button>
+        </div>
       </div>
       <div class="card">
         <h3>Live signals</h3>
@@ -152,6 +210,15 @@
         <div class="row"><span>Confidence</span><b id="confidence">--</b></div>
         <div class="row"><span>Execution</span><b id="execution">--</b></div>
         <div class="row"><span>Detected</span><b id="detected">--</b></div>
+      </div>
+      <div class="card">
+        <h3>Live detect · unscored</h3>
+        <div class="row"><span>Sees now</span><b id="liveAction">--</b></div>
+        <div class="row"><span>Confidence</span><b id="liveConf">--</b></div>
+        <div class="row"><span>In frame</span><b id="liveFrame">--</b></div>
+        <div class="row"><span>Hands</span><b id="liveHands">--</b></div>
+        <div class="row"><span>Hand move L/R</span><b id="liveMove">--</b></div>
+        <div class="tiny" id="liveHint" style="margin-top:8px">Waiting for pose…</div>
       </div>
       <div class="card">
         <h3>Punch counts</h3>

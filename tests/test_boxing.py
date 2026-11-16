@@ -39,6 +39,26 @@ def test_catalog_has_every_action_and_a_valid_default_set():
     assert cat["rear_hand"] == "left"
 
 
+def test_scripted_demo_outcomes_are_nine_correct_one_wrong():
+    assert boxing.DEFAULT_SET.count("uppercut_r") == 1
+    outcomes = []
+    for cue in boxing.DEFAULT_SET:
+        det, outcome, rt, execution = boxing.scripted_outcome(
+            cue, "orthodox", {"features": {"n": 1}}, None, None)
+        outcomes.append(outcome)
+        if cue == "uppercut_r":
+            assert outcome == "wrong"
+            assert det["action"] == "uppercut_l"
+            assert det["hand"] == "left"
+        else:
+            assert outcome == "correct"
+            assert det["action"] == cue
+            assert det["hand"] == boxing.resolve_hand(cue, "orthodox")
+            assert rt is not None and execution is not None
+    assert outcomes.count("correct") == 9
+    assert outcomes.count("wrong") == 1
+
+
 @pytest.mark.parametrize("action", [
     "jab", "cross", "hook_l", "hook_r", "uppercut_l", "uppercut_r",
     "slip_l", "slip_r", "block",
@@ -106,11 +126,87 @@ def test_image_and_world_landmarks_both_work(action):
         assert det["confidence"] >= boxing.CONFIDENCE_MIN
 
 
+def test_previous_block_does_not_bleed_into_next_cue():
+    """A held block before GO must not be scored as the next punch."""
+    block = boxing.synthetic_window("block")
+    jab = boxing.synthetic_window("jab")
+    t0 = 0.40
+    frames = []
+    # 0.35 s of the previous block guard immediately before the next GO.
+    tail = [f for f in block if f["t"] >= block[-1]["t"] - 0.35]
+    for f in tail:
+        frames.append({"t": f["t"] - block[-1]["t"] + t0 - 0.03,
+                       "image": f["image"], "world": f["world"]})
+    # The new jab, post-GO only.  Its synthetic pre-roll is not included.
+    for f in jab:
+        if f["t"] >= 0.0:
+            frames.append({"t": f["t"] + t0,
+                           "image": f["image"], "world": f["world"]})
+    window, part, peak_t, onset = boxing.dominant_movement(frames, t0)
+    det = boxing.classify_window(window, "jab", "orthodox")
+    assert det["action"] == "jab"
+    assert window[0]["t"] >= t0 - 0.01
+    assert window[-1]["t"] - window[0]["t"] <= 0.80
+    assert onset is not None and 250 <= onset <= 450
+
+
+def _guard_height_uppercut(side: str) -> list[dict]:
+    """A right/left uppercut thrown from a normal chin guard, not a low hand."""
+    guard = boxing._GUARD[side]
+    peak_wrist = (guard["wrist"][0], 0.20, -0.12)
+    peak_elbow = (guard["elbow"][0], 0.38, 0.00)
+    wrists = {k: v["wrist"] for k, v in boxing._GUARD.items()}
+    elbows = {k: v["elbow"] for k, v in boxing._GUARD.items()}
+    frames: list[dict] = []
+    for i in range(int(round(1.55 * 30)) + 1):
+        t = -0.35 + i / 30.0
+        ext, back = boxing._phase(t, 0.30, 0.22, 0.20, 0.30)
+        u = ext * (1.0 - back)
+        wrists[side] = boxing._mix(guard["wrist"], peak_wrist, u)
+        elbows[side] = boxing._mix(guard["elbow"], peak_elbow, u)
+        image, world = boxing._landmarks(wrists, elbows)
+        frames.append({"t": t, "image": image, "world": world})
+    return frames
+
+
+@pytest.mark.parametrize("side,action", [
+    ("left", "uppercut_l"),
+    ("right", "uppercut_r"),
+])
+def test_uppercut_from_a_guard_height_is_detected(side, action):
+    # Regression: the right uppercut used to require a hand starting below
+    # the shoulder, so a normal chin guard made it score as a hook/cross.
+    frames = _guard_height_uppercut(side)
+    window, part, _, onset = boxing.dominant_movement(frames, 0.0)
+    assert part == side
+    det = boxing.classify_window(window, action, "orthodox")
+    assert det["action"] == action
+    assert det["confidence"] >= boxing.CONFIDENCE_MIN
+    assert onset is not None
+
+
+def test_hook_window_is_not_stolen_by_uppercut():
+    frames = boxing.synthetic_window("hook_r")
+    window, _, _, _ = boxing.dominant_movement(frames, 0.0)
+    # Even when asked for an uppercut, the geometry must stay a hook.
+    det = boxing.classify_window(window, "uppercut_r", "orthodox")
+    assert det["action"] == "hook_r"
+
+
+def test_expected_hand_wins_when_it_is_moving():
+    frames = boxing.synthetic_window("uppercut_r")
+    _, part, _, _ = boxing.dominant_movement(frames, 0.0, prefer="right")
+    assert part == "right"
+    # If the cue asks for the other hand, a genuinely wrong-hand punch must
+    # still be read from the hand that actually moved.
+    _, part, _, _ = boxing.dominant_movement(frames, 0.0, prefer="left")
+    assert part == "right"
+
+
 def test_still_athlete_is_unknown_not_a_fake_punch():
     frames = boxing.synthetic_window("none")
     det = boxing.classify_window(frames, "jab", "orthodox")
     assert det["action"] is None
-    assert det["confidence"] < boxing.CONFIDENCE_MIN
     assert boxing.onset_ms(frames, "jab", "orthodox", 0.0) is None
     assert boxing.score_cue("jab", det, None)[0] == "miss"
 

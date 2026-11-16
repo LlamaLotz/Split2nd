@@ -629,7 +629,7 @@ class VisionEngine:
         if not CV2_OK:
             return
         h, w = frame.shape[:2]
-        tw = 320
+        tw = max(160, int(getattr(config, "PREVIEW_WIDTH", 320)))
         th = max(2, int(round(h * tw / max(1, w))))
         vis = cv2.resize(frame, (tw, th), interpolation=cv2.INTER_AREA)
         if landmarks:

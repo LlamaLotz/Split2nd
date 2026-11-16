@@ -22,7 +22,7 @@ const S = {
   running: false,
   connected: false,
   lastTotal: 0,
-  mirror: true,
+  mirror: false,
 };
 
 const $cue = $("#cueLabel");
@@ -96,6 +96,8 @@ async function boot() {
 
   setInterval(pollHealth, 1000);
   pollHealth();
+  setInterval(pollLive, 400);
+  pollLive();
 }
 
 function pollHealth() {
@@ -154,10 +156,19 @@ function onState(msg) {
     $("#progress").textContent = `${msg.progress.done}/${msg.progress.total}`;
     $("#accuracy").textContent =
       msg.progress.done ? `${Math.round(msg.progress.accuracy * 100)}%` : "--";
+    $("#fsProgress").textContent =
+      `${msg.progress.done}/${msg.progress.total} · ` +
+      (msg.progress.done ? `${Math.round(msg.progress.accuracy * 100)}%` : "--");
   }
   if (msg.phase === "idle" && S.running) {
     S.running = false;
     $("#startBtn").textContent = "START";
+  }
+  if (msg.phase === "idle" && !msg.cue) {
+    $("#fsCue").className = "";
+    $("#fsCue").textContent = "READY";
+    $("#fsCueName").textContent = "--";
+    $("#fsResult").textContent = "Press START. Throw only at the big cue.";
   }
   if (msg.error) $("#sessionHint").textContent = msg.error;
 }
@@ -181,11 +192,23 @@ function runCue(msg) {
   $("#confidence").textContent = "--";
   $("#execution").textContent = "--";
   $("#zDrop").textContent = "--";
+  $("#fsCue").className = "";
+  $("#fsCue").textContent = "READY";
+  $("#fsCueName").textContent = label(S.cue.id);
+  $("#fsProgress").textContent =
+    `${msg.progress?.done ?? 0}/${msg.progress?.total ?? 10} · ` +
+    (msg.progress?.done ? `${Math.round(msg.progress.accuracy * 100)}%` : "--");
+  $("#fsResult").textContent = "Throw only when the punch appears.";
+  $("#fsTip").textContent = S.cue.cue || "Guard up. Snap the punch and return.";
 
   S.timer = setTimeout(() => {
     $cue.textContent = label(S.cue.id);
     $cue.className = "go";
     $text.textContent = S.cue.cue || "Throw the punch, then return to guard.";
+    $("#fsCue").textContent = label(S.cue.id);
+    $("#fsCue").className = "go";
+    $("#fsResult").textContent = "GO — throw it now.";
+    $("#fsCueName").textContent = label(S.cue.id);
     // Ack immediately after paint; do not wait for rAF. The backend anchors
     // t0 here so the local camera and the cue share a time origin.
     S.ws?.send({ type: "painted", ts: performance.now(), clock: CLOCK_ID });
@@ -203,7 +226,11 @@ function showResult(msg) {
   $("#resultHeadline").textContent = correct
     ? `${rt == null ? "HELD" : `${rt} ms`} · ${label(msg.detected)}`
     : `${msg.detected ? label(msg.detected) : "NO PUNCH"} · expected ${label(msg.expected)}`;
-  $("#resultTip").textContent = suggestion(msg);
+  const outOfFrame = msg.validation && msg.validation.in_frame === false;
+  const tipText = outOfFrame
+    ? "Camera lost a hand or your head. Step back until head and both gloves are in frame, then run it again."
+    : suggestion(msg);
+  $("#resultTip").textContent = tipText;
 
   $("#progress").textContent = `${msg.progress?.done ?? 0}/${msg.progress?.total ?? 10}`;
   $("#accuracy").textContent =
@@ -217,6 +244,20 @@ function showResult(msg) {
     msg.execution_ms == null ? "--" : `${msg.execution_ms} ms`;
   $("#zDrop").textContent =
     msg.z_drop_cm == null ? "--" : `${msg.z_drop_cm} cm`;
+
+  const fsHeadline = correct
+    ? `${rt == null ? "HELD" : `${rt} ms`} · ${label(msg.detected)}`
+    : `${msg.detected ? label(msg.detected) : "NO PUNCH"} · needed ${label(msg.expected)}`;
+  $("#fsCue").className = correct ? "good" : "bad";
+  $("#fsCue").textContent = correct
+    ? label(msg.cue)
+    : (msg.detected ? label(msg.detected) : "MISS");
+  $("#fsCueName").textContent = label(msg.detected);
+  $("#fsProgress").textContent =
+    `${msg.progress?.done ?? 0}/${msg.progress?.total ?? 10} · ` +
+    (msg.progress?.done ? `${Math.round(msg.progress.accuracy * 100)}%` : "--");
+  $("#fsResult").textContent = fsHeadline;
+  $("#fsTip").textContent = tipText;
 
   if (msg.tip) {
     $("#sessionHint").textContent = `${msg.tip.headline} ${msg.tip.body}`;
@@ -275,7 +316,58 @@ function showReport(msg) {
     : "Single-camera gross-action labels. Compare your own session to your own session.";
   renderCounts(msg.report);
   $("#overlayStart").textContent = "RUN IT BACK";
+  $("#fsCue").className = "good";
+  $("#fsCue").textContent = "SET DONE";
+  $("#fsCueName").textContent = `${r.correct ?? 0}/${r.cues ?? 0}`;
+  $("#fsProgress").textContent =
+    `${r.cues ?? 0}/${r.cues ?? 0} · ${Math.round((r.accuracy ?? 0) * 100)}%`;
+  $("#fsResult").textContent =
+    `${r.correct ?? 0} correct · ${Math.round((r.accuracy ?? 0) * 100)}% · ` +
+    `${r.median_rt_ms ?? "--"} ms median`;
+  $("#fsTip").textContent = msg.tip
+    ? `${msg.tip.headline} ${msg.tip.body}`
+    : "Run it back. Accuracy first, then speed.";
   $overlay.classList.remove("hidden");
+}
+
+function pollLive() {
+  api("/api/boxing/live")
+    .then((d) => {
+      const action = d.action || null;
+      const top = d.top || null;
+      const shown = action || top;
+      const conf = Math.round(
+        (action ? d.confidence : d.top_confidence ?? d.confidence ?? 0) * 100,
+      );
+      const inFrame = !!d.in_frame;
+      const hands = d.hands_visible || {};
+      const lead = hands.lead ? "lead ✓" : "lead ✗";
+      const rear = hands.rear ? "rear ✓" : "rear ✗";
+      const move = d.hands || {};
+      const lMove = Number(move.left?.travel ?? 0);
+      const rMove = Number(move.right?.travel ?? 0);
+      const frameText = inFrame
+        ? "yes"
+        : d.head_visible === false ? "head out" : `${lead} · ${rear}`;
+      $("#liveAction").textContent = shown
+        ? `${label(shown)}${action ? "" : "?"}`
+        : d.frames ? "nothing clear" : "--";
+      $("#liveConf").textContent = d.frames ? `${conf}%` : "--";
+      $("#liveFrame").textContent = frameText;
+      $("#liveHands").textContent = d.frames ? `${lead} · ${rear}` : "--";
+      $("#liveMove").textContent = d.frames
+        ? `L ${lMove.toFixed(2)} · R ${rMove.toFixed(2)}`
+        : "--";
+      $("#liveHint").textContent = !d.frames
+        ? "No pose yet — stand where the camera can see head and both hands."
+        : inFrame
+          ? "In frame. Throw one punch to see how the coach reads it."
+          : "Step back until head and both gloves are inside the frame.";
+      $("#fsLive").textContent = !d.frames
+        ? "no pose"
+        : `${shown ? label(shown) + (action ? "" : "?") : "nothing"} ${conf}% · ${inFrame ? "in frame" : "step back"}`;
+    })
+    .catch(() => {});
 }
 
 function startSession() {

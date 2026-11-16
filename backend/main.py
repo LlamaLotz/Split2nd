@@ -261,7 +261,24 @@ async def leaderboard(mode: str = "racing") -> list[dict[str, Any]]:
 
 @app.get("/api/boxing/catalog")
 async def boxing_catalog(stance: str = "orthodox") -> dict[str, Any]:
-    return boxing.catalog(stance)
+    cat = boxing.catalog(stance)
+    # config is the source of truth for live timings; the constants in
+    # boxing.py are only defaults for standalone classifier use.
+    cat.update({
+        "window_ms": config.BOXING_WINDOW_MS,
+        "delay_min_ms": config.BOXING_DELAY_MIN_MS,
+        "delay_max_ms": config.BOXING_DELAY_MAX_MS,
+        "result_hold_s": config.RESULT_HOLD_S,
+        "scripted": bool(config.BOXING_SCRIPTED),
+    })
+    return cat
+
+
+@app.get("/api/boxing/live")
+async def boxing_live(window: float = 1.5) -> dict[str, Any]:
+    """Unscored live classifier readout: what the coach sees right now."""
+    window = max(0.5, min(3.0, float(window)))
+    return engine.live_detection(window)
 
 
 @app.get("/api/players/{player_id}/boxing")

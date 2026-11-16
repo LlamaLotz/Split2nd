@@ -12,10 +12,12 @@ channels on the same time origin.
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 import string
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from . import boxing, config, evidence
@@ -576,10 +578,19 @@ class DrillEngine:
                 elapsed = self._now_drill() - self.t0
                 # Score a clear punch as soon as it is confident instead of
                 # waiting the full window. Unclear/miss still waits.
-                if not self._early_done and elapsed >= 0.70 and self.boxing_cue:
+                if (not getattr(config, "BOXING_SCRIPTED", False)
+                        and not self._early_done and elapsed >= 1.00
+                        and self.boxing_cue):
                     self._early_done = True
                     frames = self._boxing_frames()
-                    det = boxing.classify_window(frames, self.boxing_cue["id"], self.stance)
+                    cue_id = self.boxing_cue["id"]
+                    if cue_id == "block":
+                        window = boxing.held_window(frames, self.t0)
+                    else:
+                        window, _, _, _ = boxing.dominant_movement(
+                            frames, self.t0,
+                            prefer=boxing.expected_part(cue_id, self.stance))
+                    det = boxing.classify_window(window, cue_id, self.stance)
                     if (det.get("action")
                             and float(det.get("confidence") or 0.0) >= 0.60):
                         await self._finish_boxing_cue()
@@ -827,9 +838,9 @@ class DrillEngine:
             return []
         if self.source == "remote":
             anchor = (self.t0 - self.offset) if self.drill_clock == "backend" else self.t0
-            since = anchor - 0.6
+            since = anchor - 0.40
         else:
-            since = self.t0 - 0.6
+            since = self.t0 - 0.40
         frames: list[dict[str, Any]] = []
         for sample in self.vision.samples_for(self.source, since=since):
             landmarks = getattr(sample, "landmarks", None)
@@ -855,22 +866,187 @@ class DrillEngine:
             frames[-1]["sensor_z"] = float(self.hit_cm)
         return frames
 
+    def _live_source(self) -> str | None:
+        """The sensor feeding the coach right now (active rep, else freshest)."""
+        now = time.perf_counter()
+        candidates = [self.source] if self.source else ["remote", "local", "fake"]
+        for source in candidates:
+            if not source:
+                continue
+            for sample in self.vision.samples_for(source, since=0.0):
+                if getattr(sample, "t_recv", 0.0) >= now - 0.60:
+                    return source
+        return None
+
+    def _live_frames(self, source: str, window_s: float) -> list[dict[str, Any]]:
+        """The most recent pose frames in any phase, for the live readout."""
+        now = time.perf_counter()
+        frames: list[dict[str, Any]] = []
+        for sample in self.vision.samples_for(source, since=0.0):
+            if getattr(sample, "t_recv", 0.0) < now - window_s:
+                continue
+            landmarks = getattr(sample, "landmarks", None)
+            world = getattr(sample, "world", None)
+            if not landmarks and not world:
+                continue
+            frames.append({
+                "t": sample.t,
+                "image": landmarks,
+                "world": world,
+                "sensor_z": None,
+            })
+        frames.sort(key=lambda f: f["t"])
+        return frames
+
+    def live_detection(self, window_s: float = 1.5) -> dict[str, Any]:
+        """What the classifier sees in the last ``window_s`` seconds.
+
+        Used by /api/boxing/live while the athlete tunes hand position and
+        stance. It never scores or advances the drill.
+        """
+        source = self._live_source()
+        frames = self._live_frames(source, window_s) if source else []
+        cue_id = (self.boxing_cue["id"]
+                  if self.mode == "boxing" and self.boxing_cue else None)
+        if frames:
+            # Mirror the scored path: classify the fastest movement in the
+            # window, not the whole 1.5 s (which keeps stale labels alive).
+            window, part, peak_t, onset = boxing.dominant_movement(
+                frames, frames[0]["t"])
+            detection = boxing.classify_window(window, cue_id, self.stance)
+            visibility = boxing.window_visibility(frames, self.stance)
+            if (detection.get("action") and detection["action"] != "block"
+                    and onset is None):
+                detection = dict(detection)
+                detection["action"] = None
+                detection["hand"] = None
+        else:
+            window, part, peak_t, onset = [], None, None, None
+            detection = {"action": None, "hand": None, "confidence": 0.0,
+                         "features": {}, "candidates": {}}
+            visibility = {"head_visible": False,
+                          "hands_visible": {"lead": False, "rear": False},
+                          "in_frame": False}
+        candidates = detection.get("candidates") or {}
+        top = max(candidates.items(),
+                  key=lambda kv: kv[1].get("confidence", 0.0)) if candidates else None
+        features = detection.get("features") or {}
+        hands: dict[str, Any] = {}
+        for side in ("left", "right"):
+            h = features.get(side) or {}
+            hands[side] = {
+                "travel": round(float(h.get("travel") or 0.0), 3),
+                "dx": round(float(h.get("dx") or 0.0), 3),
+                "dy": round(float(h.get("dy") or 0.0), 3),
+                "across": round(float(h.get("across") or 0.0), 3),
+                "elbow_max": (round(float(h["elbow_max"]), 1)
+                              if h.get("elbow_max") is not None else None),
+                "depth_drop": round(float(h.get("depth_drop") or 0.0), 3),
+            }
+        return {
+            "action": detection.get("action"),
+            "hand": detection.get("hand"),
+            "confidence": round(float(detection.get("confidence") or 0.0), 3),
+            "top": top[0] if top else None,
+            "top_confidence": (round(float(top[1].get("confidence") or 0.0), 3)
+                               if top else 0.0),
+            "candidates": candidates,
+            "in_frame": bool(visibility.get("in_frame")),
+            "head_visible": bool(visibility.get("head_visible")),
+            "hands_visible": visibility.get("hands_visible") or {},
+            "frames": len(frames),
+            "window_s": window_s,
+            "dominant": part,
+            "peak_t": round(peak_t, 3) if peak_t is not None else None,
+            "onset_ms": onset,
+            "cue": cue_id,
+            "phase": self.phase,
+            "mode": self.mode,
+            "stance": self.stance,
+            "source": source,
+            "hands": hands,
+        }
+
+    def _debug_boxing(self, cue_id: str, detection: dict[str, Any],
+                      outcome: str, reaction_ms: int | None,
+                      window_info: dict[str, Any] | None = None) -> None:
+        path = Path(__file__).resolve().parent.parent / "data" / "boxing_debug.jsonl"
+        rec = {
+            "at": round(time.time(), 3),
+            "player_id": self.player_id,
+            "session_id": self.session_id,
+            "cue": cue_id,
+            "stance": self.stance,
+            "detected": detection.get("action"),
+            "hand": detection.get("hand"),
+            "confidence": detection.get("confidence"),
+            "outcome": outcome,
+            "reaction_ms": reaction_ms,
+            "source": self.source,
+            "window": window_info or {},
+            "features": detection.get("features"),
+            "candidates": detection.get("candidates"),
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec, default=str) + "\n")
+
     async def _finish_boxing_cue(self) -> None:
         if not self.player_id or not self.boxing_cue:
             return
         cue = self.boxing_cue
         cue_id = cue["id"]
         frames = self._boxing_frames()
-        detection = boxing.classify_window(frames, cue_id, self.stance)
-        reaction_ms = boxing.onset_ms(frames, cue_id, self.stance, self.t0)
-        if reaction_ms is None and detection.get("action"):
-            # The expected hand never moved.  If the classifier is confident
-            # that a different action happened, time that action so the cue
-            # scores "wrong" instead of "no response".
-            reaction_ms = boxing.onset_ms(frames, detection["action"], self.stance,
-                                          self.t0)
+        window_info: dict[str, Any] = {}
+        if cue_id == "block":
+            # A block is a held posture: grade the last 0.6 s so the raise
+            # into guard and any earlier movement cannot spoil it.
+            window = boxing.held_window(frames, self.t0)
+            detection = boxing.classify_window(window, cue_id, self.stance)
+            reaction_ms = None
+            window_info = {"mode": "held", "part": "both",
+                           "frames": len(window)}
+        else:
+            # Grade the fastest movement after GO, not the whole 1.5 s.
+            # This stops the previous rep (and a slow guard raise) from being
+            # scored against the current cue.
+            window, part, peak_t, onset_ms = boxing.dominant_movement(
+                frames, self.t0,
+                prefer=boxing.expected_part(cue_id, self.stance))
+            detection = boxing.classify_window(window, cue_id, self.stance)
+            reaction_ms = onset_ms
+            if reaction_ms is None:
+                reaction_ms = boxing.onset_ms(frames, cue_id, self.stance,
+                                              self.t0)
+            if reaction_ms is None and detection.get("action"):
+                # The expected hand never moved. If the classifier is
+                # confident that a different action happened, time that
+                # action so the cue scores "wrong" instead of "no response".
+                reaction_ms = boxing.onset_ms(frames, detection["action"],
+                                              self.stance, self.t0)
+            window_info = {
+                "mode": "peak", "part": part,
+                "peak_t": round(peak_t, 3) if peak_t is not None else None,
+                "frames": len(window), "onset_ms": onset_ms,
+            }
         outcome, execution_ms = boxing.score_cue(cue_id, detection, reaction_ms)
+        scripted = bool(getattr(config, "BOXING_SCRIPTED", False))
+        if scripted:
+            # Demo script: ignore what the classifier saw. Every cue is
+            # correct except the right uppercut, which always reads as the
+            # left uppercut so the result card shows a clear wrong answer.
+            real_action = detection.get("action")
+            detection, outcome, reaction_ms, execution_ms = \
+                boxing.scripted_outcome(cue_id, self.stance, detection,
+                                        reaction_ms, execution_ms)
+            window_info["scripted"] = True
+            window_info["real_action"] = real_action
         correct = outcome == "correct"
+        try:
+            self._debug_boxing(cue_id, detection, outcome, reaction_ms,
+                               window_info)
+        except Exception:
+            pass
 
         if correct:
             self.combo += 1
@@ -891,16 +1067,28 @@ class DrillEngine:
         edge = edge_payload(edge_color)
         led = led_color(edge_color)
 
-        validation = boxing.window_visibility(frames, self.stance)
-        validation.update({
-            "action_match": bool(correct),
-            "confidence": round(float(detection.get("confidence") or 0.0), 3),
-            "gate_hit": self.hit_ms is not None,
-        })
-        validation["in_frame"] = bool(
-            validation.get("head_visible")
-            and all((validation.get("hands_visible") or {}).values())
-        )
+        if scripted:
+            # Demo mode must not flip a forced correct into an out-of-frame
+            # warning just because the athlete or the classifier was noisy.
+            validation = {
+                "head_visible": True,
+                "hands_visible": {"lead": True, "rear": True},
+                "in_frame": True,
+                "action_match": bool(correct),
+                "confidence": round(float(detection.get("confidence") or 0.0), 3),
+                "gate_hit": self.hit_ms is not None,
+            }
+        else:
+            validation = boxing.window_visibility(window, self.stance)
+            validation.update({
+                "action_match": bool(correct),
+                "confidence": round(float(detection.get("confidence") or 0.0), 3),
+                "gate_hit": self.hit_ms is not None,
+            })
+            validation["in_frame"] = bool(
+                validation.get("head_visible")
+                and all((validation.get("hands_visible") or {}).values())
+            )
 
         ghost_ms = None
         if done - 1 < len(self.ghost_trace):

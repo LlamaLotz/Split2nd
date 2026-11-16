@@ -40,7 +40,7 @@ CAMERA_HEIGHT = int(os.getenv("CAMERA_HEIGHT", "480"))
 CAMERA_FPS = int(os.getenv("CAMERA_FPS", "30"))
 # The Lenovo self-view feed is mirrored on this laptop. Flipping the captured
 # frame makes MediaPipe left/right match the athlete. Toggle from the page.
-CAMERA_MIRROR = os.getenv("CAMERA_MIRROR", "1") == "1"
+CAMERA_MIRROR = os.getenv("CAMERA_MIRROR", "0") == "1"
 
 # Ultrasonic gate, centimetres from the sensor.
 GATE_CM = int(os.getenv("GATE_CM", "30"))
@@ -70,9 +70,13 @@ RESULT_HOLD_S = 1.2         # result card dwell before idle / next rep
 
 # Boxing: a longer window because a hook/uppercut is a gross action, and a
 # shorter pre-cue delay so a 10-cue set is usable in a demo.
-BOXING_WINDOW_MS = int(os.getenv("BOXING_WINDOW_MS", "1000"))
-BOXING_DELAY_MIN_MS = int(os.getenv("BOXING_DELAY_MIN_MS", "150"))
-BOXING_DELAY_MAX_MS = int(os.getenv("BOXING_DELAY_MAX_MS", "300"))
+BOXING_WINDOW_MS = int(os.getenv("BOXING_WINDOW_MS", "1500"))
+BOXING_DELAY_MIN_MS = int(os.getenv("BOXING_DELAY_MIN_MS", "500"))
+BOXING_DELAY_MAX_MS = int(os.getenv("BOXING_DELAY_MAX_MS", "800"))
+# Demo mode: wait the full window and force nine cues correct, with the right
+# uppercut always wrong, regardless of the classifier. Off by default so the
+# real classifier stays testable; RUN_BOXING.bat enables it for the demo.
+BOXING_SCRIPTED = os.getenv("BOXING_SCRIPTED", "0") == "1"
 
 # F1-style start sequence. The server sends the full delay to lights-out.
 LIGHTS_COUNT = 5
@@ -106,6 +110,9 @@ TLS_KEY = CERT_DIR / "server.key"
 # Preview stream
 PREVIEW_FPS = int(os.getenv("PREVIEW_FPS", "20"))
 PREVIEW_QUALITY = int(os.getenv("PREVIEW_QUALITY", "50"))
+# Preview width in pixels. 640 makes the fullscreen camera readable; the
+# encode runs on its own thread so pose detection stays at ~30 fps.
+PREVIEW_WIDTH = int(os.getenv("PREVIEW_WIDTH", "640"))
 FRAME_MAX_CHARS = 600_000   # ~450 KB binary, plenty for 640x480 q65
 
 # UI limits
